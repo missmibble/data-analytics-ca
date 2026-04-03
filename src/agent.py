@@ -30,6 +30,23 @@ STRUCTURED_MODEL_ARN = (
 )
 
 
+_INDICATOR_CONTEXT = (
+    "Use these exact indicator_name values from dim_indicator: "
+    "'CPI - All-items', 'CPI - Energy', 'CPI - Food', 'CPI - Shelter', 'CPI - Transportation', "
+    "'Gasoline price (per litre)', "
+    "'Food price - Bread (per 675g)', 'Food price - Eggs (per dozen)', 'Food price - Milk (per 2L)', "
+    "'Avg rent - Bachelor', 'Avg rent - 1 Bedroom', 'Avg rent - 2 Bedroom', "
+    "'Avg rent - 3 Bedroom +', 'Avg rent - Total', "
+    "'Vacancy rate - Bachelor', 'Vacancy rate - 1 Bedroom', 'Vacancy rate - 2 Bedroom', "
+    "'Vacancy rate - 3 Bedroom +', 'Vacancy rate - Total', "
+    "'NHPI - Total', 'NHPI - House only', 'NHPI - Land only'. "
+    "Data storage rules: "
+    "CPI and gasoline are monthly — always filter dim_date with is_annual=FALSE and month between 1 and 12. "
+    "Rent and vacancy data are annual October surveys — filter with month=10 and is_annual=FALSE. "
+    "Income data is in fact_annual_income, not fact_monthly. "
+)
+
+
 @tool
 def query_structured_kb(query: str) -> str:
     """
@@ -37,8 +54,9 @@ def query_structured_kb(query: str) -> str:
     time-series data — rents, CPI values, income figures, vacancy rates, NHPI.
     """
     kb_id = STRUCTURED_KB_ID or os.environ["STRUCTURED_KB_ID"]
+    enriched_query = _INDICATOR_CONTEXT + "Query: " + query
     response = _bedrock_runtime.retrieve_and_generate(
-        input={"text": query},
+        input={"text": enriched_query},
         retrieveAndGenerateConfiguration={
             "type": "KNOWLEDGE_BASE",
             "knowledgeBaseConfiguration": {

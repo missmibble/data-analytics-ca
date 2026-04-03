@@ -18,8 +18,9 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 - **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000412
 - **Frequency:** Monthly
 - **Format:** CSV (downloaded via StatCan WDS API)
-- **Date range loaded:** 2015–2024
+- **Date range loaded:** 2015–2026
 - **CMAs covered:** All 16 target CMAs
+- **⚠️ Partially loaded:** Only `CPI - All-items` and `CPI - Shelter` categories are in the database. `CPI - Food`, `CPI - Energy`, and `CPI - Transportation` were not ingested. Re-run the StatCan ingest and transform pipeline for table `1810000412` to load the missing categories.
 
 ### Median and Average Income
 - **What it provides:** Annual median income, average income, and number of earners by CMA, income source, age group, and sex
@@ -71,7 +72,7 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 - **File format used:** ARent_Vac_Occ sheet; CMA rows identified by "CMA" suffix; Occupied Units column used
 - **Years loaded:** 2019, 2020
 - **CMAs covered:** 15 target CMAs (excludes Charlottetown — CA, not CMA)
-- **Note:** Additional years pending. When added, run: `uv run python -m src.ingest.cmhc && uv run python -m src.transform.cmhc && uv run python -m src.load.redshift_loader --source cmhc`
+- **⚠️ Data only available to 2020.** CMHC discontinued the ARent_Vac_Occ sheet format after 2020; later RMR releases do not include average rent by bedroom type in a parseable format. 2019 and 2020 are the full extent of available data.
 
 ---
 

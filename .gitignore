@@ -7,6 +7,6 @@ venv/
 dist/
 *.egg-info/
 .pytest_cache/
-data/cmhc/
+data/
 lambda_package/
 lambda.zip

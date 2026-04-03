@@ -143,23 +143,37 @@
 </div>
 
 <div id="messages">
-  <div class="bubble agent">Hello! I can answer questions about Canadian rental markets, cost of living, CPI, and income data across major cities. Try asking:
+  <div class="bubble agent">Hello! I can answer specific questions about Canadian economic indicators across 16 major CMAs. Best results come from targeted questions — see examples below.
 
-• What was the average 2-bedroom rent in Calgary?
-• Compare CPI shelter index for Toronto and Vancouver.
-• Which city has the lowest vacancy rate?
-• How affordable is Montreal for a $75,000 salary?</div>
+📊 What's available:
+• CPI (All-items & Shelter): 2015–2026 monthly
+• Gasoline prices: 2015–2026 monthly
+• Food prices (bread, milk, eggs): 2017–2026 monthly
+• Vacancy rates: 2020–2023 annual
+• Average rents: 2019–2020 only
+• Income: by source, age group, and sex (not a single household total)
+
+✅ Try asking:
+• What was the average 2-bedroom rent in Calgary in 2020?
+• What was the CPI shelter index in Toronto in 2022?
+• Which city had the lowest vacancy rate in 2023?
+• What was the gasoline price in Vancouver in 2023?
+• What was the price of milk in Halifax in 2024?
+
+⚠️ Limitations: Best suited for specific lookups. Broad or open-ended questions (e.g. "Tell me about income in Toronto") may time out or return incomplete results. Responses can take up to 30 seconds.</div>
 </div>
 
 <div id="input-area">
-  <textarea id="question" placeholder="Ask about Canadian housing, CPI, or income data…" rows="1"></textarea>
+  <textarea id="question" placeholder="Ask a specific question, e.g. gasoline price in Calgary in 2023…" rows="1"></textarea>
   <button id="send">Send</button>
 </div>
 
 <div id="disclaimer">Data sourced from Statistics Canada and CMHC · ForeSite Analytics · SAIT Capstone 2026</div>
 
 <script>
-  const API_URL = "https://s3pshau4s4.execute-api.ca-central-1.amazonaws.com/chat";
+  const API_BASE = "https://s3pshau4s4.execute-api.ca-central-1.amazonaws.com";
+  const POLL_MS = 3000;
+  const MAX_POLLS = 40; // 120 second safety timeout
 
   const messages = document.getElementById("messages");
   const input    = document.getElementById("question");
@@ -200,6 +214,26 @@
     });
   }
 
+  function pollForResult(jobId) {
+    return new Promise((resolve, reject) => {
+      let polls = 0;
+      const iv = setInterval(async () => {
+        if (++polls > MAX_POLLS) {
+          clearInterval(iv);
+          reject(new Error("timeout"));
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/result/${jobId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.status === "complete") { clearInterval(iv); resolve(data.response); }
+          else if (data.status === "error") { clearInterval(iv); reject(new Error(data.detail || "Agent error")); }
+        } catch {}
+      }, POLL_MS);
+    });
+  }
+
   async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
@@ -210,25 +244,32 @@
     showTyping();
 
     try {
-      const res = await fetch(API_URL, {
+      const submitRes = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
 
-      removeTyping();
-
-      if (!res.ok) {
-        addBubble("Sorry, something went wrong (HTTP " + res.status + "). Please try again.", "error");
-      } else {
-        const data = await res.json();
-        const responseText = data.response || "(no response)";
-        const bubble = addBubble("", "agent");
-        await typewrite(bubble, responseText);
+      if (!submitRes.ok) {
+        removeTyping();
+        addBubble("Sorry, something went wrong (HTTP " + submitRes.status + "). Please try again.", "error");
+        sendBtn.disabled = false;
+        input.focus();
+        return;
       }
+
+      const { job_id } = await submitRes.json();
+      const responseText = await pollForResult(job_id);
+      removeTyping();
+      const bubble = addBubble("", "agent");
+      await typewrite(bubble, responseText);
+
     } catch (err) {
       removeTyping();
-      addBubble("Could not reach the server. Check your connection and try again.", "error");
+      const msg = err.message === "timeout"
+        ? "The request took too long. Try a more specific question."
+        : "Could not reach the server. Check your connection and try again.";
+      addBubble(msg, "error");
     }
 
     sendBtn.disabled = false;

@@ -1,22 +1,22 @@
 """
 ForeSite Analytics — Lambda handler.
 
-Supports two invocation modes:
-  - API Gateway (regular):            handler(event, context)
-  - Function URL (streaming SSE):     handler(event, response_stream, context)
-
-Endpoints:
-    POST /chat    Streams agent tokens as Server-Sent Events (Function URL)
-                  or returns {"response": "..."} JSON (API Gateway fallback)
-    GET  /health  {"status": "ok"}
-    OPTIONS *     CORS preflight
+Invocation modes:
+  - API Gateway POST /chat   → dispatches async worker, returns {job_id}
+  - API Gateway GET /result  → polls S3 for job result
+  - API Gateway GET /health  → health check
+  - Worker mode              → runs agent, writes result to S3
 """
 
 import asyncio
 import json
 import logging
 import os
+import uuid
+from datetime import datetime, timezone
 
+import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,15 +27,15 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+_S3_BUCKET = os.environ.get("S3_BUCKET_RAW", "foresite-raw-ca-383429078788")
+_LAMBDA_NAME = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "foresite-agent-api")
+_AWS_REGION = os.environ.get("AWS_REGION", "ca-central-1")
+
 # ---------------------------------------------------------------------------
-# FastAPI app (used for regular / API Gateway invocations)
+# FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(
-    title="ForeSite Analytics API",
-    description="Natural language interface to Canadian HR economic indicators",
-    version="0.1.0",
-)
+app = FastAPI(title="ForeSite Analytics API", version="0.1.0")
 
 _raw_origins = os.environ.get("ALLOWED_ORIGINS", "*")
 _origins = [o.strip() for o in _raw_origins.split(",")]
@@ -54,101 +54,74 @@ class ChatRequest(BaseModel):
     message: str
 
 
-class ChatResponse(BaseModel):
-    response: str
-
-
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(body: ChatRequest) -> ChatResponse:
+@app.post("/chat")
+def chat(body: ChatRequest) -> dict:
+    """Dispatch an async worker and return a job_id immediately."""
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="message must not be empty")
 
-    log.info("Chat request: %s", body.message[:120])
+    job_id = str(uuid.uuid4())
+    log.info("Dispatching job %s: %s", job_id, body.message[:120])
 
-    from src.agent import get_agent
-    agent = get_agent()
+    boto3.client("lambda", region_name=_AWS_REGION).invoke(
+        FunctionName=_LAMBDA_NAME,
+        InvocationType="Event",
+        Payload=json.dumps({
+            "__mode": "worker",
+            "job_id": job_id,
+            "message": body.message,
+        }).encode(),
+    )
+    return {"job_id": job_id}
 
+
+@app.get("/result/{job_id}")
+def get_result(job_id: str) -> dict:
+    """Poll S3 for job result. Returns {status: pending} if not ready."""
+    s3 = boto3.client("s3", region_name=_AWS_REGION)
     try:
-        result = agent(body.message)
-        return ChatResponse(response=str(result))
-    except Exception as exc:
-        log.exception("Agent error: %s", exc)
-        raise HTTPException(status_code=500, detail="Agent error — see logs for details")
+        obj = s3.get_object(Bucket=_S3_BUCKET, Key=f"results/{job_id}.json")
+        return json.loads(obj["Body"].read())
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return {"status": "pending"}
+        log.exception("S3 error fetching result %s", job_id)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 _mangum_handler = Mangum(app, lifespan="off")
 
 
 # ---------------------------------------------------------------------------
-# Streaming handler (Function URL with InvokeMode=RESPONSE_STREAM)
+# Worker — runs inside an async Lambda invocation, writes result to S3
 # ---------------------------------------------------------------------------
 
-def _cors_headers() -> dict:
-    origin = _origins[0] if _origins else "*"
-    return {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-    }
-
-
-async def _stream_chat(event: dict, response_stream) -> None:
-    """Write agent tokens as SSE chunks into the Lambda response stream."""
-    response_stream.set_headers({
-        **_cors_headers(),
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    })
+def _run_worker(job_id: str, message: str) -> None:
+    s3 = boto3.client("s3", region_name=_AWS_REGION)
+    key = f"results/{job_id}.json"
+    log.info("Worker starting job %s", job_id)
     try:
-        body = json.loads(event.get("body") or "{}")
-        message = body.get("message", "").strip()
-        if not message:
-            response_stream.write(b'data: {"error":"No message provided"}\n\ndata: [DONE]\n\n')
-            return
-
-        log.info("Streaming chat: %s", message[:120])
         from src.agent import get_agent
-        agent = get_agent()
-
-        async for chunk in agent.stream_async(message):
-            if chunk.get("data"):
-                payload = json.dumps({"token": chunk["data"]})
-                response_stream.write(f"data: {payload}\n\n".encode())
-
-        response_stream.write(b"data: [DONE]\n\n")
-
+        result = get_agent()(message)
+        body = json.dumps({
+            "status": "complete",
+            "response": str(result),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
     except Exception as exc:
-        log.exception("Streaming error")
-        error_payload = json.dumps({"error": str(exc)})
-        response_stream.write(f"data: {error_payload}\n\ndata: [DONE]\n\n".encode())
-    finally:
-        response_stream.close()
-
-
-async def _handle_streaming(event: dict, response_stream, context) -> None:
-    path = event.get("rawPath", "/")
-    method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
-
-    if method == "OPTIONS":
-        response_stream.set_headers({**_cors_headers(), "Content-Type": "text/plain"})
-        response_stream.write(b"")
-        response_stream.close()
-    elif path == "/health":
-        response_stream.set_headers({**_cors_headers(), "Content-Type": "application/json"})
-        response_stream.write(b'{"status":"ok"}')
-        response_stream.close()
-    elif path == "/chat" and method == "POST":
-        await _stream_chat(event, response_stream)
-    else:
-        response_stream.set_headers({**_cors_headers(), "Content-Type": "application/json"})
-        response_stream.write(b'{"error":"not found"}')
-        response_stream.close()
+        log.exception("Worker job %s failed", job_id)
+        body = json.dumps({
+            "status": "error",
+            "detail": str(exc),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+    s3.put_object(Bucket=_S3_BUCKET, Key=key, Body=body.encode(), ContentType="application/json")
+    log.info("Worker job %s written to s3://%s/%s", job_id, _S3_BUCKET, key)
 
 
 # ---------------------------------------------------------------------------
@@ -156,16 +129,21 @@ async def _handle_streaming(event: dict, response_stream, context) -> None:
 # ---------------------------------------------------------------------------
 
 def handler(event, arg2, arg3=None):
-    """
-    Routes to streaming or regular handler based on invocation mode:
-      API Gateway:       handler(event, context)               → arg3 is None
-      Function URL SSE:  handler(event, response_stream, ctx)  → arg3 is not None
-    """
+    # Worker mode: async self-invocation
+    if isinstance(event, dict) and event.get("__mode") == "worker":
+        _run_worker(event["job_id"], event["message"])
+        return
+
+    # Streaming Function URL mode (unused but kept for future use)
     if arg3 is not None:
         response_stream, context = arg2, arg3
-        asyncio.run(_handle_streaming(event, response_stream, context))
-    else:
-        return _mangum_handler(event, arg2)
+        response_stream.set_headers({"Content-Type": "application/json"})
+        response_stream.write(b'{"error":"use async polling endpoint"}')
+        response_stream.close()
+        return
+
+    # API Gateway mode
+    return _mangum_handler(event, arg2)
 
 
 # ---------------------------------------------------------------------------
