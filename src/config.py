@@ -41,7 +41,7 @@ STATCAN_TABLES = {
         "frequency": "monthly",
     },
     "nhpi": {
-        "pid": "1810020701",  # New Housing Price Index — CMA level
+        "pid": "1810020501",  # New Housing Price Index — CMA level (table 18-10-0205-01)
         "description": "New Housing Price Index by CMA",
         "frequency": "monthly",
     },
@@ -78,6 +78,7 @@ CMA_NAME_MAP: dict[str, str] = {
     "Ottawa–Gatineau": "Ottawa-Gatineau",
     "Ottawa - Gatineau": "Ottawa-Gatineau",
     "Ottawa-Gatineau, Ontario part": "Ottawa-Gatineau",
+    "Ottawa-Gatineau, Ontario part, Ontario/Quebec": "Ottawa-Gatineau",
     # Edmonton variants
     "Edmonton": "Edmonton",
     "Edmonton, Alberta": "Edmonton",
@@ -107,6 +108,7 @@ CMA_NAME_MAP: dict[str, str] = {
     # Charlottetown variants
     "Charlottetown": "Charlottetown",
     "Charlottetown-Summerside": "Charlottetown",
+    "Charlottetown, Prince Edward Island": "Charlottetown",
     # St. John's variants
     "St. John's": "St. John's",
     "St. John's, Newfoundland and Labrador": "St. John's",
@@ -148,13 +150,13 @@ Data sources:
 - For complex questions (e.g. "best city for a $90k salary"), use both tools to combine numeric data with context.
 
 ## Data Availability — What Is Actually Loaded
-- **CPI**: All-items and Shelter only (2015–2026). Food, Energy, Transportation CPI not available.
+- **CPI**: All-items and Shelter only (2015–2026). Food, Energy, and Transportation CPI are not published at the CMA level by StatCan — only national/provincial breakdowns exist for those categories.
 - **Gasoline prices**: 2015–2026 monthly.
 - **Food prices** (bread, milk, eggs): 2017–2026 monthly.
 - **Average rents**: 2019–2020 only (CMHC data after 2020 not available in parseable format).
 - **Vacancy rates**: 2020–2023 annual.
 - **Income**: Statistics Canada table 11-10-0239-01, segmented by income source (employment, CPP/QPP, government transfers, child benefits, etc.), age group, and sex. There is no single "median household income" field — queries must specify the income source or the result will be partial.
-- **NHPI**: Not loaded.
+- **NHPI**: 1981–2025 monthly. Index base period: December 2016 = 100. Three series: Total (house and land), House only, Land only. Available for 15 CMAs (no Thunder Bay).
 
 ## Tool Use Rules
 - Make **at most 3 tool calls** per response. If the first query does not return data, report what is available rather than retrying with variations.

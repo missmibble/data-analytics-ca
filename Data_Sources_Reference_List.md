@@ -20,7 +20,7 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 - **Format:** CSV (downloaded via StatCan WDS API)
 - **Date range loaded:** 2015–2026
 - **CMAs covered:** All 16 target CMAs
-- **⚠️ Partially loaded:** Only `CPI - All-items` and `CPI - Shelter` categories are in the database. `CPI - Food`, `CPI - Energy`, and `CPI - Transportation` were not ingested. Re-run the StatCan ingest and transform pipeline for table `1810000412` to load the missing categories.
+- **Categories available at CMA level:** `CPI - All-items` and `CPI - Shelter` only. StatCan table 18-10-0004-12 does not publish Food, Energy, or Transportation CPI at the CMA level — these breakdowns are only available nationally or provincially (not in this table).
 
 ### Median and Average Income
 - **What it provides:** Annual median income, average income, and number of earners by CMA, income source, age group, and sex
@@ -88,7 +88,8 @@ CREA's MLS Home Price Index was originally considered but requires REALTOR® mem
 - **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810020501
 - **Frequency:** Monthly
 - **Format:** CSV (StatCan WDS API)
-- **Status:** ⚠️ Not yet loaded — StatCan API was unavailable at time of ingestion. Download `18100207-eng.zip` from the StatCan WDS API when available and run the StatCan ingest pipeline.
+- **Date range loaded:** 1981–2025
+- **CMAs covered:** 15 target CMAs (Thunder Bay not included in StatCan NHPI coverage)
 
 ---
 

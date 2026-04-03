@@ -556,7 +556,7 @@ def _build_lambda_zip() -> bytes:
     log.info("Building Lambda deployment package (linux/x86_64 wheels) …")
     subprocess.run(
         [
-            "uv", "pip", "install",
+            str(Path.home() / ".local/bin/uv"), "pip", "install",
             "--target", str(pkg_dir),
             "--python-platform", "linux",
             "--python-version", "3.11",

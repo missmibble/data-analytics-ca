@@ -48,6 +48,12 @@ FOOD_PRODUCT_MAP = {
     "Eggs, 1 dozen":           "Food price - Eggs (per dozen)",
 }
 
+NHPI_INDEX_MAP = {
+    "Total (house and land)": "NHPI - Total",
+    "House only":             "NHPI - House only",
+    "Land only":              "NHPI - Land only",
+}
+
 
 # ---------------------------------------------------------------------------
 # Redshift dim table lookups
@@ -218,6 +224,29 @@ def transform_food(geo_ids: dict, ind_ids: dict) -> str:
     return _write_transformed(out, pid)
 
 
+def transform_nhpi(geo_ids: dict, ind_ids: dict) -> str:
+    pid = STATCAN_TABLES["nhpi"]["pid"]
+    key = _latest_raw_key(pid)
+    if not key:
+        raise FileNotFoundError(f"No raw file found for pid={pid}. Run ingest first.")
+
+    df = _read_raw_csv(key)
+    df["cma_canonical"] = df["GEO"].str.strip().map(CMA_NAME_MAP)
+    df = df[df["cma_canonical"].notna()]
+    df["indicator_name"] = df["New housing price indexes"].str.strip().map(NHPI_INDEX_MAP)
+    df = df[df["indicator_name"].notna()]
+    df = df[df["VALUE"].notna() & (df["VALUE"] != "")]
+
+    df["geography_id"] = df["cma_canonical"].map(geo_ids)
+    df["date_id"] = df["REF_DATE"].str.replace("-", "").astype(int)
+    df["indicator_id"] = df["indicator_name"].map(lambda n: ind_ids.get((n, "StatCan")))
+    df["value"] = pd.to_numeric(df["VALUE"], errors="coerce")
+
+    out = df[["geography_id", "date_id", "indicator_id", "value"]].dropna()
+    out = out.astype({"geography_id": int, "date_id": int, "indicator_id": int})
+    return _write_transformed(out, pid)
+
+
 def transform_income(geo_ids: dict) -> str:
     """Income goes to fact_annual_income — different schema."""
     pid = STATCAN_TABLES["median_income"]["pid"]
@@ -275,6 +304,7 @@ TRANSFORM_MAP = {
     "cpi_cma":        ("fact_monthly",        transform_cpi),
     "gasoline_prices": ("fact_monthly",       transform_gasoline),
     "food_prices":    ("fact_monthly",         transform_food),
+    "nhpi":           ("fact_monthly",         transform_nhpi),
     "median_income":  ("fact_annual_income",   None),  # handled separately
 }
 
