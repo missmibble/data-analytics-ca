@@ -148,6 +148,41 @@ def load_statcan(pid: str) -> None:
         upsert_fact_monthly(latest)
 
 
+def upsert_annual_income_tenure(s3_key: str) -> None:
+    execute_sql("TRUNCATE stg_fact_annual_income_tenure")
+    copy_from_s3(
+        "stg_fact_annual_income_tenure", s3_key,
+        "geography_id, date_id, tenure, median_income, avg_income"
+    )
+    execute_sql("""
+        DELETE FROM fact_annual_income_tenure
+        USING stg_fact_annual_income_tenure
+        WHERE fact_annual_income_tenure.geography_id = stg_fact_annual_income_tenure.geography_id
+          AND fact_annual_income_tenure.date_id       = stg_fact_annual_income_tenure.date_id
+          AND fact_annual_income_tenure.tenure        = stg_fact_annual_income_tenure.tenure
+    """)
+    execute_sql("""
+        INSERT INTO fact_annual_income_tenure (geography_id, date_id, tenure, median_income, avg_income)
+        SELECT geography_id, date_id, tenure, median_income, avg_income
+        FROM stg_fact_annual_income_tenure
+    """)
+    log.info("Upserted fact_annual_income_tenure from %s", s3_key)
+
+
+def load_cmhc_income_tenure() -> None:
+    """Load the most recent transformed CMHC income-by-tenure CSV from S3."""
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    objects = s3_client.list_objects_v2(
+        Bucket=S3_BUCKET_RAW, Prefix="transformed/cmhc_income_tenure/"
+    ).get("Contents", [])
+    if not objects:
+        log.warning("No transformed CMHC income tenure file found — run src.transform.cmhc_income_tenure first.")
+        return
+    latest = sorted(objects, key=lambda o: o["LastModified"], reverse=True)[0]["Key"]
+    log.info("Loading CMHC income tenure from %s", latest)
+    upsert_annual_income_tenure(latest)
+
+
 def load_cmhc(year: int | None = None) -> None:
     """Load transformed CMHC CSV(s) from S3."""
     s3_client = boto3.client("s3", region_name=AWS_REGION)
@@ -180,11 +215,17 @@ def main(source: str) -> None:
         except Exception as exc:
             log.error("Failed to load CMHC: %s", exc)
 
+    if source in ("all", "cmhc_income_tenure"):
+        try:
+            load_cmhc_income_tenure()
+        except Exception as exc:
+            log.error("Failed to load CMHC income tenure: %s", exc)
+
     log.info("Redshift load complete.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load normalized CSVs from S3 into Redshift")
-    parser.add_argument("--source", choices=["all", "statcan", "cmhc"], default="all")
+    parser.add_argument("--source", choices=["all", "statcan", "cmhc", "cmhc_income_tenure"], default="all")
     args = parser.parse_args()
     main(args.source)

@@ -74,6 +74,34 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 - **CMAs covered:** 15 target CMAs (excludes Charlottetown — CA, not CMA)
 - **⚠️ Data only available to 2020.** CMHC discontinued the ARent_Vac_Occ sheet format after 2020; later RMR releases do not include average rent by bedroom type in a parseable format. 2019 and 2020 are the full extent of available data.
 
+### Real Median Household After-tax Income by Tenure
+- **What it provides:** Real median household after-tax income (2023 constant dollars) by tenure type (All, Renter, Owner), 2006–2023
+- **Source:** CMHC, sourced from Statistics Canada Canadian Income Survey
+- **File:** `real-median-household-income-after-tax-tenure-2006-2023-en.xlsx`
+- **Frequency:** Annual
+- **Destination:** Redshift `fact_annual_income_tenure` (median_income column)
+- **CMAs covered:** 15 target CMAs (excludes Charlottetown)
+
+### Average Household After-tax Income by Tenure
+- **What it provides:** Real average household after-tax income (2023 constant dollars) by tenure type (All, Renter, Owner), 2006–2023
+- **Source:** CMHC, sourced from Statistics Canada Canadian Income Survey
+- **File:** `average-household-after-tax-income-by-tenure-2006-2023-en.xlsx`
+- **Frequency:** Annual
+- **Destination:** Redshift `fact_annual_income_tenure` (avg_income column, merged with median file)
+- **CMAs covered:** 15 target CMAs (excludes Charlottetown)
+
+### National Mortgage and Credit Trends — Canada 2025 Q4
+- **What it provides:** 35 data tables covering mortgage delinquency rates, credit scores, HELOC/auto/credit card trends, payment obligations, and borrower demographics at the national level. Limited CMA breakdown for Montreal, Toronto, and Vancouver (delinquency rates only).
+- **Source:** CMHC / Equifax
+- **File:** `mortgage-consumer-credit-trends-canada-2025-q4-en.xlsx`
+- **Frequency:** Quarterly report
+- **Destination:** Vector Knowledge Base (`foresite-docs-ca` S3 bucket) — semantic search only, not loaded into Redshift
+- **Note:** Quarterly granularity and heterogeneous table schemas make this unsuitable for the star schema. Uploaded to the vector KB for contextual queries.
+
+### CMHC Mortgage Rates
+- **File:** `mortgage-rates-02-26-en`
+- **Destination:** Vector Knowledge Base (`foresite-docs-ca` S3 bucket) — semantic search only, not loaded into Redshift
+
 ---
 
 ## **3. Canadian Real Estate Association (CREA) — Not Used**

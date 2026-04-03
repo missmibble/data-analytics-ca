@@ -148,3 +148,22 @@ CREATE TABLE IF NOT EXISTS fact_annual_income (
     loaded_at       TIMESTAMP    DEFAULT GETDATE(),
     PRIMARY KEY (geography_id, date_id, income_source, age_group, sex)
 ) DISTKEY(geography_id) SORTKEY(date_id)
+~~~
+CREATE TABLE IF NOT EXISTS stg_fact_annual_income_tenure (
+    geography_id    INT,
+    date_id         INT,
+    tenure          VARCHAR(20),
+    median_income   DECIMAL(12,2),
+    avg_income      DECIMAL(12,2)
+)
+~~~
+CREATE TABLE IF NOT EXISTS fact_annual_income_tenure (
+    id              BIGINT IDENTITY(1,1),
+    geography_id    INT          NOT NULL REFERENCES dim_geography(geography_id),
+    date_id         INT          NOT NULL,
+    tenure          VARCHAR(20)  NOT NULL,
+    median_income   DECIMAL(12,2),
+    avg_income      DECIMAL(12,2),
+    loaded_at       TIMESTAMP    DEFAULT GETDATE(),
+    PRIMARY KEY (geography_id, date_id, tenure)
+) DISTKEY(geography_id) SORTKEY(date_id)

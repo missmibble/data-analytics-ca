@@ -89,6 +89,7 @@ CMA_NAME_MAP: dict[str, str] = {
     # Quebec City variants
     "Québec": "Quebec City",
     "Quebec City": "Quebec City",
+    "Quebec - CMA": "Quebec City",
     "Québec, Quebec": "Quebec City",
     # Halifax variants
     "Halifax": "Halifax",
@@ -111,6 +112,7 @@ CMA_NAME_MAP: dict[str, str] = {
     "Charlottetown, Prince Edward Island": "Charlottetown",
     # St. John's variants
     "St. John's": "St. John's",
+    "St John's": "St. John's",
     "St. John's, Newfoundland and Labrador": "St. John's",
     # Thunder Bay variants
     "Thunder Bay": "Thunder Bay",
