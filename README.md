@@ -50,6 +50,7 @@ Open `.env` and fill in:
 | `VECTOR_KB_ID` | Populated automatically by `infra/setup.py` |
 | `ALLOWED_ORIGINS` | `*` during development; set to external site URL when known |
 | `API_GATEWAY_URL` | Populated automatically by `infra/setup.py` |
+| `STREAM_URL` | Lambda Function URL for streaming chat (populated automatically) |
 
 ---
 
@@ -63,7 +64,7 @@ uv run python infra/setup.py
 
 You will be prompted for a Redshift admin password (min 8 chars, must include uppercase, lowercase, and a digit).
 
-On completion, the script prints `STRUCTURED_KB_ID`, `VECTOR_KB_ID`, and `API_GATEWAY_URL` — copy these into your `.env` file.
+On completion, the script prints `STRUCTURED_KB_ID`, `VECTOR_KB_ID`, `API_GATEWAY_URL`, and `STREAM_URL` — copy these into your `.env` file.
 
 To provision infrastructure only (skip Lambda/API Gateway):
 

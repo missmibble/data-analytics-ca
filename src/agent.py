@@ -13,6 +13,7 @@ import os
 import boto3
 from dotenv import load_dotenv
 from strands import Agent, tool
+from strands.models import BedrockModel
 from strands_tools import retrieve
 
 from src.config import AWS_REGION, STRUCTURED_KB_ID, VECTOR_KB_ID, SYSTEM_PROMPT
@@ -52,7 +53,12 @@ def query_structured_kb(query: str) -> str:
 def get_agent() -> Agent:
     """Return a configured ForeSite agent instance."""
     os.environ["KNOWLEDGE_BASE_ID"] = VECTOR_KB_ID or os.environ.get("VECTOR_KB_ID", "")
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        region_name=AWS_REGION,
+    )
     return Agent(
+        model=model,
         tools=[retrieve, query_structured_kb],
         system_prompt=SYSTEM_PROMPT,
     )

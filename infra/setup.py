@@ -214,13 +214,25 @@ def _get_or_create_bedrock_role() -> str:
                 },
                 {
                     "Effect": "Allow",
-                    "Action": ["bedrock:InvokeModel"],
+                    "Action": ["bedrock:InvokeModel", "bedrock:GenerateQuery"],
                     "Resource": "*",
                 },
                 {
                     "Effect": "Allow",
-                    "Action": ["redshift-data:ExecuteStatement", "redshift-data:DescribeStatement",
-                               "redshift-data:GetStatementResult", "redshift-serverless:GetCredentials"],
+                    "Action": [
+                        "redshift-data:ExecuteStatement", "redshift-data:DescribeStatement",
+                        "redshift-data:GetStatementResult", "redshift-data:CancelStatement",
+                        "redshift-serverless:GetCredentials",
+                    ],
+                    "Resource": "*",
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "sqlworkbench:GetSqlRecommendations",
+                        "sqlworkbench:AssociateConnectionWithEnvironment",
+                        "sqlworkbench:GetAutocompletionResult",
+                    ],
                     "Resource": "*",
                 },
                 {
@@ -529,13 +541,26 @@ def _get_or_create_lambda_role() -> str:
 
 
 def _build_lambda_zip() -> bytes:
-    """Package src/ + installed dependencies into a Lambda-compatible ZIP."""
+    """Package src/ + installed dependencies into a Lambda-compatible ZIP.
+
+    Uses --python-platform linux and --python-version 3.11 to ensure
+    compiled C extensions (e.g. pydantic_core) are downloaded as
+    manylinux wheels compatible with Lambda's Amazon Linux environment,
+    even when building from macOS.
+    """
     zip_path = Path("lambda.zip")
-    log.info("Building Lambda deployment package …")
+    pkg_dir = Path("lambda_package")
+    if pkg_dir.exists():
+        import shutil
+        shutil.rmtree(pkg_dir)
+    log.info("Building Lambda deployment package (linux/x86_64 wheels) …")
     subprocess.run(
         [
             "uv", "pip", "install",
-            "--target", "lambda_package",
+            "--target", str(pkg_dir),
+            "--python-platform", "linux",
+            "--python-version", "3.11",
+            "--no-cache",
             "--quiet",
             "strands-agents", "strands-agents-tools",
             "fastapi", "mangum", "uvicorn",
@@ -584,7 +609,7 @@ def provision_lambda(role_arn: str, structured_kb_id: str, vector_kb_id: str) ->
             Role=role_arn,
             Handler="src.api.handler",
             Code={"ZipFile": zip_bytes},
-            Timeout=60,
+            Timeout=120,
             MemorySize=512,
             Environment={"Variables": env_vars},
         )
@@ -592,6 +617,57 @@ def provision_lambda(role_arn: str, structured_kb_id: str, vector_kb_id: str) ->
         log.info("Created Lambda: %s", fn_arn)
 
     return fn_arn
+
+
+# ---------------------------------------------------------------------------
+# Step 5b — Lambda Function URL (streaming SSE)
+# ---------------------------------------------------------------------------
+
+def provision_function_url(lambda_arn: str) -> str:
+    """Create or update a Lambda Function URL with InvokeMode=RESPONSE_STREAM."""
+    log.info("=== Step 5b: Lambda Function URL (streaming) ===")
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
+    origins = [o.strip() for o in allowed_origins.split(",")]
+
+    cors_config = {
+        "AllowCredentials": False,
+        "AllowHeaders": ["content-type"],
+        "AllowMethods": ["GET", "POST"],
+        "AllowOrigins": origins,
+        "MaxAge": 86400,
+    }
+
+    try:
+        resp = lambda_client.get_function_url_config(FunctionName=LAMBDA_FUNCTION_NAME)
+        lambda_client.update_function_url_config(
+            FunctionName=LAMBDA_FUNCTION_NAME,
+            Cors=cors_config,
+        )
+        url = resp["FunctionUrl"]
+        log.info("Function URL already exists: %s", url)
+    except lambda_client.exceptions.ResourceNotFoundException:
+        resp = lambda_client.create_function_url_config(
+            FunctionName=LAMBDA_FUNCTION_NAME,
+            AuthType="NONE",
+            InvokeMode="RESPONSE_STREAM",
+            Cors=cors_config,
+        )
+        url = resp["FunctionUrl"]
+        log.info("Created Function URL: %s", url)
+
+        # Allow public (unauthenticated) access
+        try:
+            lambda_client.add_permission(
+                FunctionName=LAMBDA_FUNCTION_NAME,
+                StatementId="FunctionURLAllowPublicAccess",
+                Action="lambda:InvokeFunctionUrl",
+                Principal="*",
+                FunctionUrlAuthType="NONE",
+            )
+        except lambda_client.exceptions.ResourceConflictException:
+            pass  # permission already exists
+
+    return url.rstrip("/")
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +692,7 @@ def provision_api_gateway(lambda_arn: str) -> str:
             ProtocolType="HTTP",
             CorsConfiguration={
                 "AllowOrigins": origins,
-                "AllowMethods": ["GET", "POST", "OPTIONS"],
+                "AllowMethods": ["GET", "POST"],
                 "AllowHeaders": ["Content-Type", "Authorization"],
                 "MaxAge": 300,
             },
@@ -678,9 +754,11 @@ def main(skip_lambda: bool = False) -> None:
         lambda_role_arn = _get_or_create_lambda_role()
         lambda_arn = provision_lambda(lambda_role_arn, structured_kb_id, vector_kb_id)
         invoke_url = provision_api_gateway(lambda_arn)
+        stream_url = provision_function_url(lambda_arn)
     else:
         log.info("Skipping Lambda and API Gateway (--skip-lambda).")
         invoke_url = "<not provisioned>"
+        stream_url = "<not provisioned>"
 
     print("\n" + "=" * 60)
     print("Provisioning complete. Add these to your .env file:")
@@ -688,6 +766,7 @@ def main(skip_lambda: bool = False) -> None:
     print(f"STRUCTURED_KB_ID={structured_kb_id}")
     print(f"VECTOR_KB_ID={vector_kb_id}")
     print(f"API_GATEWAY_URL={invoke_url}")
+    print(f"STREAM_URL={stream_url}")
     print("=" * 60 + "\n")
 
 

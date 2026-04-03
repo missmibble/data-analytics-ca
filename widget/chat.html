@@ -188,6 +188,18 @@
     if (t) t.remove();
   }
 
+  function typewrite(bubble, text, charsPerTick = 3, intervalMs = 16) {
+    return new Promise(resolve => {
+      let i = 0;
+      const tick = setInterval(() => {
+        i = Math.min(i + charsPerTick, text.length);
+        bubble.textContent = text.slice(0, i);
+        messages.scrollTop = messages.scrollHeight;
+        if (i >= text.length) { clearInterval(tick); resolve(); }
+      }, intervalMs);
+    });
+  }
+
   async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
@@ -210,7 +222,9 @@
         addBubble("Sorry, something went wrong (HTTP " + res.status + "). Please try again.", "error");
       } else {
         const data = await res.json();
-        addBubble(data.response || "(no response)", "agent");
+        const responseText = data.response || "(no response)";
+        const bubble = addBubble("", "agent");
+        await typewrite(bubble, responseText);
       }
     } catch (err) {
       removeTyping();
