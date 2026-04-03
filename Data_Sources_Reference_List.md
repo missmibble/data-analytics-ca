@@ -6,72 +6,97 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 
 ---
 
+> **Note:** This document was updated by Claude (Anthropic) on 2026-04-03 to reflect the actual data files ingested into the system. The original version listed planned sources; this revision documents what was actually loaded into the Redshift database and the date ranges available.
+
+---
+
 ## **1. Statistics Canada**
 
-### Consumer Price Index (CPI)
-- **What it provides:** Monthly inflation data by city and category (food, transportation, shelter, etc.)
-- **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000401
+### Consumer Price Index (CPI) by Census Metropolitan Area
+- **What it provides:** Monthly CPI by city across 5 categories: All-items, Food, Shelter, Transportation, Energy
+- **Table:** 18-10-0004-12 (CMA-level)
+- **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000412
 - **Frequency:** Monthly
-- **Format:** CSV, API available
+- **Format:** CSV (downloaded via StatCan WDS API)
+- **Date range loaded:** 2015–2024
+- **CMAs covered:** All 16 target CMAs
 
-### Median Income by City
-- **What it provides:** Median household and individual income by census metropolitan area
+### Median and Average Income
+- **What it provides:** Annual median income, average income, and number of earners by CMA, income source, age group, and sex
+- **Table:** 11-10-0239-01
 - **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1110023901
-- **Frequency:** Annual (Census + updates)
-- **Format:** CSV
+- **Frequency:** Annual
+- **Format:** CSV (downloaded via StatCan WDS API)
+- **Date range loaded:** 2015–2022
+- **CMAs covered:** All 16 target CMAs
 
-### Food Prices
-- **What it provides:** Average retail prices for food products by city
+### Food Prices (Provincial proxy)
+- **What it provides:** Average retail prices for bread, milk, and eggs by province. No CMA-level breakdown exists — provincial values are replicated to all target CMAs within each province.
+- **Table:** 18-10-0245-01
 - **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810024501
 - **Frequency:** Monthly
-- **Format:** CSV
+- **Format:** CSV (downloaded via StatCan WDS API)
+- **Date range loaded:** 2017–2024
+- **Note:** Provincial-level only. Values are assigned to CMAs by province.
 
 ### Gasoline Prices
-- **What it provides:** Average pump prices by province and select cities
+- **What it provides:** Average pump prices (regular unleaded, self-serve) by city
+- **Table:** 18-10-0001-01
 - **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000101
 - **Frequency:** Monthly
-- **Format:** CSV
+- **Format:** CSV (downloaded via StatCan WDS API)
+- **Date range loaded:** 2015–2024
+- **CMAs covered:** All 16 target CMAs
 
 ---
 
 ## **2. Canada Mortgage and Housing Corporation (CMHC)**
 
-### Rental Market Survey
-- **What it provides:** Average rent by bedroom type, vacancy rates, and rental market trends by city
+### Rental Market Survey — Vacancy Rates by Bedroom Type
+- **What it provides:** Annual vacancy rates by bedroom type (Bachelor, 1 Bedroom, 2 Bedroom, 3 Bedroom+, Total) for private apartments
+- **Source table:** Table 1.1.1 — Vacancy Rates by Bedroom Type and Census Subdivision
 - **Access:** https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research/housing-data/data-tables/rental-market
-- **Frequency:** Monthly and Annual Reports
-- **Format:** Excel, PDF reports
-- **Note:** Some data requires free CMHC account registration
+- **Frequency:** Annual (October survey)
+- **Format:** Excel (.xlsx) — manual download required; no public API
+- **File format used:** CSD sheet with Census Subdivision breakdown; CMA totals extracted from rows where Census Subdivision = "Total" and Dwelling Type = "Total"
+- **Years loaded:** 2020, 2021, 2022, 2023
+- **CMAs covered:** All 16 target CMAs (including Charlottetown)
 
-### Specific Data Tables:
-- **Average Rents:** Table 3.1.1 - Private Row (Townhouse) and Apartment Average Rents
-- **Vacancy Rates:** Table 1.1.1 - Vacancy Rates by Bedroom Type
+### Rental Market Survey — Average Rents by Bedroom Type
+- **What it provides:** Average occupied-unit rents by bedroom type (Bachelor, 1 Bedroom, 2 Bedroom, 3 Bedroom+, Total)
+- **Source table:** Average Rents of Vacant and Occupied Units by Zone and Bedroom Type
+- **Access:** https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research/housing-data/data-tables/rental-market
+- **Frequency:** Annual (October survey)
+- **Format:** Excel (.xlsx) — manual download required; no public API
+- **File format used:** ARent_Vac_Occ sheet; CMA rows identified by "CMA" suffix; Occupied Units column used
+- **Years loaded:** 2019, 2020
+- **CMAs covered:** 15 target CMAs (excludes Charlottetown — CA, not CMA)
+- **Note:** Additional years pending. When added, run: `uv run python -m src.ingest.cmhc && uv run python -m src.transform.cmhc && uv run python -m src.load.redshift_loader --source cmhc`
 
 ---
 
-## **3. Canadian Real Estate Association (CREA)**
+## **3. Canadian Real Estate Association (CREA) — Not Used**
 
-### MLS Home Price Index (HPI)
-- **What it provides:** Quality-adjusted home price trends by market (better than simple averages)
-- **Access:** https://www.crea.ca/housing-market-stats/mls-home-price-index/
-- **Frequency:** Monthly
-- **Format:** Web-based data viewer, downloadable reports
-- **Note:** Public aggregate data available; detailed MLS data requires REALTOR® membership
+CREA's MLS Home Price Index was originally considered but requires REALTOR® membership for detailed data. It was replaced by Statistics Canada's New Housing Price Index (NHPI), which is publicly available.
 
-### Monthly Market Statistics
-- **What it provides:** Sales activity, new listings, price trends by city
-- **Access:** https://stats.crea.ca/en-CA/
+---
+
+## **4. Statistics Canada — New Housing Price Index (NHPI)**
+- **What it provides:** Monthly new house price index by CMA (Total, House only, Land only). Base period: December 2016 = 100
+- **Table:** 18-10-0205-01
+- **Access:** https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810020501
 - **Frequency:** Monthly
-- **Format:** Interactive dashboard, PDF reports
+- **Format:** CSV (StatCan WDS API)
+- **Status:** ⚠️ Not yet loaded — StatCan API was unavailable at time of ingestion. Download `18100207-eng.zip` from the StatCan WDS API when available and run the StatCan ingest pipeline.
 
 ---
 
 ## **Additional Notes:**
 
-- **Data Grain:** Our tool combines monthly data (CPI, rent, HPI) with annual data (income) using a date dimension table for proper time-series analysis.
-- **Geographic Coverage:** Focus on major Canadian census metropolitan areas (CMAs): Toronto, Vancouver, Calgary, Montreal, Ottawa, Edmonton, etc.
-- **Data Cleaning:** We standardize city names, handle missing values, and align geography keys across sources since each organization uses different naming conventions.
-- **Architecture:** All data is ingested into Microsoft Fabric (Delta Lake), cleaned with PySpark, and modeled in a star schema (15 relationships) for Power BI Direct Lake mode.
+- **Data Grain:** Monthly data (CPI, rent, gasoline, food prices) uses date_id format YYYYMM. Annual data (income) uses YYYY00. CMHC rental data is an October annual survey, stored as YYYYMM where MM=10.
+- **Geographic Coverage:** 16 major Canadian CMAs: Toronto, Vancouver, Calgary, Montreal, Ottawa-Gatineau, Edmonton, Winnipeg, Quebec City, Halifax, Victoria, Regina, Saskatoon, Saint John, Charlottetown, St. John's, Thunder Bay.
+- **Data Cleaning:** City names are standardized via a canonical CMA name map (see `src/config.py`). Each source uses different naming conventions (e.g. "Montréal" → "Montreal", "Ottawa" → "Ottawa-Gatineau").
+- **Architecture:** AWS Redshift Serverless star schema → Amazon Bedrock Structured Knowledge Base (NL-to-SQL) + Vector Knowledge Base → Strands AI agent → FastAPI + Lambda + API Gateway.
 
 ---
 
@@ -79,9 +104,12 @@ Below are the data sources used in the HR Recruitment Tool (ForeSite Analytics).
 
 | Source | Link |
 |--------|------|
-| Statistics Canada - Data Tables | https://www150.statcan.gc.ca/n1/en/type/data |
-| CMHC - Housing Market Data | https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research |
-| CREA - MLS HPI | https://www.crea.ca/housing-market-stats/mls-home-price-index/ |
+| Statistics Canada - CPI by CMA (18-10-0004-12) | https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000412 |
+| Statistics Canada - Income (11-10-0239-01) | https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1110023901 |
+| Statistics Canada - Food Prices (18-10-0245-01) | https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810024501 |
+| Statistics Canada - Gasoline (18-10-0001-01) | https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000101 |
+| Statistics Canada - NHPI (18-10-0205-01) | https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810020501 |
+| CMHC - Housing Market Data Tables | https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research/housing-data/data-tables/rental-market |
 
 ---
 

@@ -12,7 +12,7 @@ import os
 
 import boto3
 from dotenv import load_dotenv
-from strands import Agent
+from strands import Agent, tool
 from strands_tools import retrieve
 
 from src.config import AWS_REGION, STRUCTURED_KB_ID, VECTOR_KB_ID, SYSTEM_PROMPT
@@ -24,11 +24,12 @@ log = logging.getLogger(__name__)
 _bedrock_runtime = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
 
 STRUCTURED_MODEL_ARN = (
-    "arn:aws:bedrock:ca-central-1::foundation-model/"
-    "anthropic.claude-sonnet-4-5-20250929-v1:0"
+    "arn:aws:bedrock:ca-central-1:383429078788:inference-profile/"
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
 
 
+@tool
 def query_structured_kb(query: str) -> str:
     """
     Query the structured (NL-to-SQL) knowledge base for precise numeric and
@@ -50,7 +51,7 @@ def query_structured_kb(query: str) -> str:
 
 def get_agent() -> Agent:
     """Return a configured ForeSite agent instance."""
-    os.environ.setdefault("STRANDS_KNOWLEDGE_BASE_ID", VECTOR_KB_ID or os.environ.get("VECTOR_KB_ID", ""))
+    os.environ["KNOWLEDGE_BASE_ID"] = VECTOR_KB_ID or os.environ.get("VECTOR_KB_ID", "")
     return Agent(
         tools=[retrieve, query_structured_kb],
         system_prompt=SYSTEM_PROMPT,

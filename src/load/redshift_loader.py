@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import logging
+import os
 import time
 from datetime import date
 
@@ -52,19 +53,25 @@ def _wait_for_statement(statement_id: str, poll_interval: int = 3) -> None:
         time.sleep(poll_interval)
 
 
+REDSHIFT_IAM_ROLE = os.getenv(
+    "REDSHIFT_IAM_ROLE",
+    f"arn:aws:iam::{boto3.client('sts').get_caller_identity()['Account']}:role/ForesiteRedshiftS3Role"
+)
+
+
 def copy_from_s3(table: str, s3_key: str, column_list: str) -> None:
     """Load a CSV from S3 into a Redshift table using COPY."""
     s3_path = f"s3://{S3_BUCKET_RAW}/{s3_key}"
     sql = f"""
         COPY {table} ({column_list})
         FROM '{s3_path}'
-        IAM_ROLE default
+        IAM_ROLE '{REDSHIFT_IAM_ROLE}'
         FORMAT AS CSV
         IGNOREHEADER 1
         EMPTYASNULL
         BLANKSASNULL
         DATEFORMAT 'auto'
-        TIMEFORMAT 'auto';
+        TIMEFORMAT 'auto'
     """
     log.info("COPY %s ← %s", table, s3_path)
     execute_sql(sql)
@@ -77,51 +84,46 @@ def copy_from_s3(table: str, s3_key: str, column_list: str) -> None:
 
 def upsert_fact_monthly(s3_key: str) -> None:
     """
-    Load a normalized StatCan CSV (geography, date_id, indicator_id, value)
-    into fact_monthly via a staging table → upsert pattern.
+    Load a normalized StatCan CSV into fact_monthly via a permanent staging table.
+    Permanent staging tables are required because the Redshift Data API opens a
+    new session per execute_statement call, so TEMP tables do not persist between calls.
     """
-    stage = "stg_fact_monthly"
-    execute_sql(f"DROP TABLE IF EXISTS {stage};")
-    execute_sql(f"""
-        CREATE TEMP TABLE {stage} (LIKE fact_monthly INCLUDING DEFAULTS);
-    """)
-    copy_from_s3(stage, s3_key, "geography_id, date_id, indicator_id, value")
-    execute_sql(f"""
+    execute_sql("TRUNCATE stg_fact_monthly")
+    copy_from_s3("stg_fact_monthly", s3_key, "geography_id, date_id, indicator_id, value")
+    execute_sql("""
         DELETE FROM fact_monthly
-        USING {stage}
-        WHERE fact_monthly.geography_id = {stage}.geography_id
-          AND fact_monthly.date_id      = {stage}.date_id
-          AND fact_monthly.indicator_id = {stage}.indicator_id;
+        USING stg_fact_monthly
+        WHERE fact_monthly.geography_id = stg_fact_monthly.geography_id
+          AND fact_monthly.date_id      = stg_fact_monthly.date_id
+          AND fact_monthly.indicator_id = stg_fact_monthly.indicator_id
     """)
-    execute_sql(f"""
+    execute_sql("""
         INSERT INTO fact_monthly (geography_id, date_id, indicator_id, value)
-        SELECT geography_id, date_id, indicator_id, value FROM {stage};
+        SELECT geography_id, date_id, indicator_id, value FROM stg_fact_monthly
     """)
     log.info("Upserted fact_monthly from %s", s3_key)
 
 
 def upsert_annual_income(s3_key: str) -> None:
-    stage = "stg_fact_annual_income"
-    execute_sql(f"DROP TABLE IF EXISTS {stage};")
-    execute_sql(f"CREATE TEMP TABLE {stage} (LIKE fact_annual_income INCLUDING DEFAULTS);")
+    execute_sql("TRUNCATE stg_fact_annual_income")
     copy_from_s3(
-        stage, s3_key,
+        "stg_fact_annual_income", s3_key,
         "geography_id, date_id, income_source, age_group, sex, median_income, avg_income, num_persons"
     )
-    execute_sql(f"""
+    execute_sql("""
         DELETE FROM fact_annual_income
-        USING {stage}
-        WHERE fact_annual_income.geography_id  = {stage}.geography_id
-          AND fact_annual_income.date_id        = {stage}.date_id
-          AND fact_annual_income.income_source  = {stage}.income_source
-          AND fact_annual_income.age_group      = {stage}.age_group
-          AND fact_annual_income.sex            = {stage}.sex;
+        USING stg_fact_annual_income
+        WHERE fact_annual_income.geography_id = stg_fact_annual_income.geography_id
+          AND fact_annual_income.date_id       = stg_fact_annual_income.date_id
+          AND fact_annual_income.income_source = stg_fact_annual_income.income_source
+          AND fact_annual_income.age_group     = stg_fact_annual_income.age_group
+          AND fact_annual_income.sex           = stg_fact_annual_income.sex
     """)
-    execute_sql(f"""
+    execute_sql("""
         INSERT INTO fact_annual_income
             (geography_id, date_id, income_source, age_group, sex, median_income, avg_income, num_persons)
         SELECT geography_id, date_id, income_source, age_group, sex, median_income, avg_income, num_persons
-        FROM {stage};
+        FROM stg_fact_annual_income
     """)
     log.info("Upserted fact_annual_income from %s", s3_key)
 
@@ -130,17 +132,16 @@ def upsert_annual_income(s3_key: str) -> None:
 # Source-specific loaders
 # ---------------------------------------------------------------------------
 
-def load_statcan(pid: str, s3_prefix: str = None) -> None:
-    """Load the most recent StatCan CSV for a given PID."""
-    prefix = s3_prefix or f"statcan/{pid}/"
+def load_statcan(pid: str) -> None:
+    """Load the most recent transformed StatCan CSV for a given PID."""
+    prefix = f"transformed/statcan/{pid}/"
     s3_client = boto3.client("s3", region_name=AWS_REGION)
     objects = s3_client.list_objects_v2(Bucket=S3_BUCKET_RAW, Prefix=prefix).get("Contents", [])
     if not objects:
-        log.warning("No files found in s3://%s/%s — run ingest first.", S3_BUCKET_RAW, prefix)
+        log.warning("No transformed file for pid=%s — run src.transform.statcan first.", pid)
         return
     latest = sorted(objects, key=lambda o: o["LastModified"], reverse=True)[0]["Key"]
     log.info("Loading StatCan pid=%s from %s", pid, latest)
-    # income table has a different schema
     if pid == "1110023901":
         upsert_annual_income(latest)
     else:
@@ -148,12 +149,12 @@ def load_statcan(pid: str, s3_prefix: str = None) -> None:
 
 
 def load_cmhc(year: int | None = None) -> None:
-    """Load CMHC CSV(s) from S3."""
+    """Load transformed CMHC CSV(s) from S3."""
     s3_client = boto3.client("s3", region_name=AWS_REGION)
-    prefix = f"cmhc/{year}.csv" if year else "cmhc/"
+    prefix = f"transformed/cmhc/{year}.csv" if year else "transformed/cmhc/"
     objects = s3_client.list_objects_v2(Bucket=S3_BUCKET_RAW, Prefix=prefix).get("Contents", [])
     if not objects:
-        log.warning("No CMHC files found — run ingest/cmhc.py first.")
+        log.warning("No transformed CMHC files found — run src.transform.cmhc first.")
         return
     for obj in objects:
         upsert_fact_monthly(obj["Key"])

@@ -20,7 +20,7 @@ An HR recruitment analytics tool that combines Canadian economic indicators (cos
 **Data sources:**
 | Source | Data | Frequency | Format |
 |--------|------|-----------|--------|
-| Statistics Canada | CPI by city/category, median income by CMA, food prices, gasoline prices | Monthly (CPI/food/gas), Annual (income) | CSV |
+| Statistics Canada | CPI by CMA/category (table 18-10-0004-12), median income by CMA, food prices, gasoline prices | Monthly (CPI/food/gas), Annual (income) | CSV |
 | CMHC | Average rent by bedroom type, vacancy rates | Monthly + Annual | Excel, PDF |
 | StatCan NHPI | New housing price index by CMA (replaces CREA HPI — REALTOR® access required) | Monthly | CSV |
 

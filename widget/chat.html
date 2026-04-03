@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ForeSite Analytics — Ask a Question</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #header {
+      background: #1a3a5c;
+      color: white;
+      padding: 14px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      flex-shrink: 0;
+    }
+
+    #header span {
+      font-weight: 300;
+      opacity: 0.75;
+      font-size: 13px;
+      margin-left: 8px;
+    }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bubble {
+      max-width: 88%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: #1a3a5c;
+      color: white;
+      border-bottom-right-radius: 3px;
+    }
+
+    .bubble.agent {
+      align-self: flex-start;
+      background: white;
+      color: #222;
+      border: 1px solid #e0e4ea;
+      border-bottom-left-radius: 3px;
+    }
+
+    .bubble.error {
+      align-self: flex-start;
+      background: #fff3f3;
+      color: #c0392b;
+      border: 1px solid #f5c6c6;
+      border-bottom-left-radius: 3px;
+    }
+
+    .typing {
+      align-self: flex-start;
+      background: white;
+      border: 1px solid #e0e4ea;
+      border-radius: 12px;
+      border-bottom-left-radius: 3px;
+      padding: 10px 16px;
+      font-size: 20px;
+      letter-spacing: 2px;
+      color: #aaa;
+    }
+
+    #input-area {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      background: white;
+      border-top: 1px solid #e0e4ea;
+      flex-shrink: 0;
+    }
+
+    #question {
+      flex: 1;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      padding: 9px 13px;
+      font-size: 14px;
+      resize: none;
+      outline: none;
+      height: 42px;
+      line-height: 1.4;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+
+    #question:focus { border-color: #1a3a5c; }
+
+    #send {
+      background: #1a3a5c;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 0 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    #send:hover { background: #255180; }
+    #send:disabled { background: #8fa8c0; cursor: not-allowed; }
+
+    #disclaimer {
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      padding: 6px 16px 10px;
+      background: white;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  ForeSite Analytics <span>Canadian Economic Indicators · HR Recruitment Tool</span>
+</div>
+
+<div id="messages">
+  <div class="bubble agent">Hello! I can answer questions about Canadian rental markets, cost of living, CPI, and income data across major cities. Try asking:
+
+• What was the average 2-bedroom rent in Calgary?
+• Compare CPI shelter index for Toronto and Vancouver.
+• Which city has the lowest vacancy rate?
+• How affordable is Montreal for a $75,000 salary?</div>
+</div>
+
+<div id="input-area">
+  <textarea id="question" placeholder="Ask about Canadian housing, CPI, or income data…" rows="1"></textarea>
+  <button id="send">Send</button>
+</div>
+
+<div id="disclaimer">Data sourced from Statistics Canada and CMHC · ForeSite Analytics · SAIT Capstone 2026</div>
+
+<script>
+  const API_URL = "https://s3pshau4s4.execute-api.ca-central-1.amazonaws.com/chat";
+
+  const messages = document.getElementById("messages");
+  const input    = document.getElementById("question");
+  const sendBtn  = document.getElementById("send");
+
+  function addBubble(text, type) {
+    const div = document.createElement("div");
+    div.className = "bubble " + type;
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+    return div;
+  }
+
+  function showTyping() {
+    const div = document.createElement("div");
+    div.className = "typing";
+    div.id = "typing";
+    div.textContent = "· · ·";
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function removeTyping() {
+    const t = document.getElementById("typing");
+    if (t) t.remove();
+  }
+
+  async function sendMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    addBubble(text, "user");
+    input.value = "";
+    sendBtn.disabled = true;
+    showTyping();
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+
+      removeTyping();
+
+      if (!res.ok) {
+        addBubble("Sorry, something went wrong (HTTP " + res.status + "). Please try again.", "error");
+      } else {
+        const data = await res.json();
+        addBubble(data.response || "(no response)", "agent");
+      }
+    } catch (err) {
+      removeTyping();
+      addBubble("Could not reach the server. Check your connection and try again.", "error");
+    }
+
+    sendBtn.disabled = false;
+    input.focus();
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Auto-expand textarea (up to 3 lines)
+  input.addEventListener("input", () => {
+    input.style.height = "42px";
+    input.style.height = Math.min(input.scrollHeight, 90) + "px";
+  });
+</script>
+</body>
+</html>

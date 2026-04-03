@@ -8,8 +8,8 @@ import os
 # AWS / S3
 # ---------------------------------------------------------------------------
 AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
-S3_BUCKET_RAW = os.getenv("S3_BUCKET_RAW", "foresite-raw-ca")
-S3_BUCKET_DOCS = os.getenv("S3_BUCKET_DOCS", "foresite-docs-ca")
+S3_BUCKET_RAW = os.getenv("S3_BUCKET_RAW", "foresite-raw-ca-383429078788")
+S3_BUCKET_DOCS = os.getenv("S3_BUCKET_DOCS", "foresite-docs-ca-383429078788")
 REDSHIFT_WORKGROUP = os.getenv("REDSHIFT_WORKGROUP", "foresite-wg")
 REDSHIFT_DATABASE = os.getenv("REDSHIFT_DATABASE", "foresite")
 STRUCTURED_KB_ID = os.getenv("STRUCTURED_KB_ID", "")
@@ -21,7 +21,7 @@ VECTOR_KB_ID = os.getenv("VECTOR_KB_ID", "")
 # ---------------------------------------------------------------------------
 STATCAN_TABLES = {
     "cpi_cma": {
-        "pid": "1810000412",
+        "pid": "1810000412",  # Table 18-10-0004-12: CPI by CMA (corrected from 1810000401 in reference list)
         "description": "Consumer Price Index by CMA",
         "frequency": "monthly",
     },

@@ -2,133 +2,215 @@
 CMHC Rental Market Survey ingestion — parses annual Excel files and uploads
 normalized CSVs to S3.
 
-Place CMHC Excel files in data/cmhc/ (e.g. data/cmhc/2024.xlsx) before running.
+CMHC publishes separate files for vacancy rates and average rents. Place them
+in data/cmhc/ — the script detects which type each file contains from the
+sheet title. Files must include the year in their name (e.g. 2023_vacancy.xlsx,
+2023_rents.xlsx, or simply 2023.xlsx for a combined file).
 
 Usage:
     python -m src.ingest.cmhc                       # process all files in data/cmhc/
-    python -m src.ingest.cmhc --file data/cmhc/2024.xlsx  # process one file
+    python -m src.ingest.cmhc --file data/cmhc/2023_vacancy.xlsx
 """
 
 import argparse
+import csv
 import io
 import logging
 import re
 from pathlib import Path
 
 import boto3
-import pandas as pd
+import openpyxl
 from dotenv import load_dotenv
 
-from src.config import (
-    AWS_REGION,
-    CMA_NAME_MAP,
-    CMHC_BEDROOM_TYPES,
-    CMHC_RENT_SHEET,
-    CMHC_VACANCY_SHEET,
-    S3_BUCKET_RAW,
-    TARGET_CMAS,
-)
+from src.config import AWS_REGION, CMA_NAME_MAP, S3_BUCKET_RAW
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 s3 = boto3.client("s3", region_name=AWS_REGION)
-
 CMHC_DROP_FOLDER = Path("data/cmhc")
+
+# Column indices in the CSD sheet for each bedroom type (0-indexed)
+# Layout: Province(0), Centre(1), CSD(2), DwellingType(3),
+#         Bachelor(4), quality(5), 1BR(6), quality(7), 2BR(8), quality(9),
+#         3BR+(10), quality(11), Total(12)
+BEDROOM_COLS = {
+    4:  "Bachelor",
+    6:  "1 Bedroom",
+    8:  "2 Bedroom",
+    10: "3 Bedroom +",
+    12: "Total",
+}
 
 
 def extract_year(path: Path) -> int:
     match = re.search(r"(20\d{2})", path.stem)
     if not match:
-        raise ValueError(f"Cannot determine year from filename: {path.name}. Name files as YYYY.xlsx")
+        raise ValueError(f"Cannot determine year from filename: {path.name}. Include year in filename.")
     return int(match.group(1))
 
 
-def log_sheets(path: Path) -> None:
-    """Log all sheet names — useful on first run to verify sheet naming."""
-    xl = pd.ExcelFile(path)
-    log.info("Sheets in %s: %s", path.name, xl.sheet_names)
+def _csd_sheet_name(wb: openpyxl.Workbook) -> str:
+    """Return the CSD sheet name, handling bilingual variants (e.g. 'CSD - SDR')."""
+    for name in wb.sheetnames:
+        if name.startswith("CSD"):
+            return name
+    return None
 
 
-def normalize_cma(name: str) -> str | None:
-    """Return canonical CMA name or None if not a target CMA."""
-    name = str(name).strip()
-    return CMA_NAME_MAP.get(name)
+def detect_format(wb: openpyxl.Workbook) -> str:
+    """Return 'csd_vacancy', 'csd_rent', or 'arent_vac_occ'."""
+    if "ARent_Vac_Occ" in wb.sheetnames:
+        return "arent_vac_occ"
+    csd = _csd_sheet_name(wb)
+    if csd:
+        ws = wb[csd]
+        title = ""
+        for row in ws.iter_rows(min_row=1, max_row=2, values_only=True):
+            title += " ".join(str(v) for v in row if v)
+        log.info("Sheet title: %s", title[:120])
+        if "Vacancy" in title:
+            return "csd_vacancy"
+        if "Rent" in title or "Average" in title:
+            return "csd_rent"
+    raise ValueError(f"Unrecognised CMHC file format. Sheets: {wb.sheetnames}")
 
 
-def parse_sheet(path: Path, sheet: str, value_col_name: str, year: int) -> pd.DataFrame:
+def parse_csd_sheet(wb: openpyxl.Workbook, year: int, data_type: str) -> list[dict]:
     """
-    Parse a wide-format CMHC sheet into a long-format DataFrame.
+    Extract CMA-level rows from the CSD sheet (vacancy rates format).
 
-    CMHC tables have geography in rows and bedroom types in columns.
-    Row structure varies by edition — we locate the header row by scanning
-    for the first row that contains bedroom type keywords.
+    CMA totals: Census Subdivision = 'Total' and Dwelling Type = 'Total'.
+    Columns: Province(0), Centre(1), CSD(2), DwellingType(3),
+             Bachelor(4), quality(5), 1BR(6), quality(7), 2BR(8),
+             quality(9), 3BR+(10), quality(11), Total(12)
     """
-    raw = pd.read_excel(path, sheet_name=sheet, header=None)
-    log.info("Parsing sheet '%s' from %s (%d rows raw)", sheet, path.name, len(raw))
+    ws = wb[_csd_sheet_name(wb)]
+    rows = []
+    for r in ws.iter_rows(min_row=4, values_only=True):
+        if r[2] != "Total" or r[3] != "Total":
+            continue
+        centre = str(r[1]).strip() if r[1] else None
+        if not centre or centre == "Total":
+            continue
+        canonical = CMA_NAME_MAP.get(centre)
+        if not canonical:
+            continue
 
-    # Find the header row — first row containing any bedroom type keyword
-    header_row_idx = None
-    for i, row in raw.iterrows():
-        row_str = " ".join(str(v) for v in row.values).lower()
-        if any(bt.lower() in row_str for bt in ["bachelor", "bedroom", "total"]):
-            header_row_idx = i
-            break
+        for col_idx, bedroom_type in BEDROOM_COLS.items():
+            raw_val = r[col_idx] if len(r) > col_idx else None
+            if raw_val in (None, "--", "**", ""):
+                continue
+            val_str = str(raw_val).strip().replace("%", "").replace("$", "").replace(",", "")
+            try:
+                value = float(val_str)
+            except ValueError:
+                continue
+            rows.append({
+                "year": year,
+                "centre": canonical,
+                "bedroom_type": bedroom_type,
+                "value": value,
+                "data_type": data_type,
+            })
+    return rows
 
-    if header_row_idx is None:
-        raise ValueError(f"Could not locate header row in sheet '{sheet}' of {path.name}")
 
-    df = pd.read_excel(path, sheet_name=sheet, header=header_row_idx)
-    df.columns = [str(c).strip() for c in df.columns]
+# Occupied Units column indices in the ARent_Vac_Occ sheet for each bedroom type.
+# Layout per bedroom: Vacant(n), quality, Occupied(n+2), quality, Y/N
+# Starting offsets: Bachelor=2, 1BR=7, 2BR=12, 3BR+=17, Total=22; Occupied = offset+2
+ARENT_OCCUPIED_COLS = {
+    4:  "Bachelor",
+    9:  "1 Bedroom",
+    14: "2 Bedroom",
+    19: "3 Bedroom +",
+    24: "Total",
+}
 
-    # First column is geography
-    geo_col = df.columns[0]
-    df = df.rename(columns={geo_col: "geography_raw"})
 
-    # Keep only bedroom-type columns that exist in this edition
-    value_cols = [c for c in df.columns if any(bt.lower() in c.lower() for bt in CMHC_BEDROOM_TYPES)]
-    if not value_cols:
-        raise ValueError(f"No bedroom type columns found in sheet '{sheet}'. Columns: {df.columns.tolist()}")
+def parse_arent_sheet(wb: openpyxl.Workbook, year: int) -> list[dict]:
+    """
+    Extract CMA-level occupied-unit average rents from the ARent_Vac_Occ sheet.
 
-    df = df[["geography_raw"] + value_cols].copy()
-    df["cma"] = df["geography_raw"].apply(normalize_cma)
-    df = df[df["cma"].notna()].copy()
+    CMA rows: Zone column ends with ' CMA' (excluding 'Remainder of CMA').
+    Year is in column 1. Occupied Units values are at fixed column indices.
+    """
+    ws = wb["ARent_Vac_Occ"]
+    rows = []
+    for r in ws.iter_rows(min_row=11, values_only=True):
+        zone = str(r[0]).strip() if r[0] else None
+        if not zone or not zone.endswith("CMA"):
+            continue
+        if "Remainder" in zone:
+            continue
+        # Strip " CMA" suffix and look up canonical name
+        centre_raw = zone[:-4].strip()  # remove " CMA"
+        canonical = CMA_NAME_MAP.get(centre_raw)
+        if not canonical:
+            continue
 
-    # Melt wide → long
-    df_long = df.melt(id_vars=["cma"], value_vars=value_cols, var_name="bedroom_type", value_name=value_col_name)
-    df_long["year"] = year
-    df_long["source"] = "CMHC"
-    df_long["bedroom_type"] = df_long["bedroom_type"].str.strip()
-
-    # Coerce values to numeric — CMHC uses "**" and "--" for suppressed/unavailable
-    df_long[value_col_name] = pd.to_numeric(df_long[value_col_name], errors="coerce")
-
-    return df_long[["year", "cma", "bedroom_type", value_col_name, "source"]]
+        row_year = int(r[1]) if r[1] else year
+        for col_idx, bedroom_type in ARENT_OCCUPIED_COLS.items():
+            raw_val = r[col_idx] if len(r) > col_idx else None
+            if raw_val in (None, "--", "**", ""):
+                continue
+            try:
+                value = float(str(raw_val).replace(",", "").strip())
+            except (ValueError, TypeError):
+                continue
+            rows.append({
+                "year": row_year,
+                "centre": canonical,
+                "bedroom_type": bedroom_type,
+                "value": value,
+                "data_type": "rent",
+            })
+    return rows
 
 
 def process_file(path: Path) -> None:
     year = extract_year(path)
     log.info("Processing %s (year=%d)", path.name, year)
-    log_sheets(path)
 
-    vacancy_df = parse_sheet(path, CMHC_VACANCY_SHEET, "vacancy_rate_pct", year)
-    rent_df = parse_sheet(path, CMHC_RENT_SHEET, "avg_rent_cad", year)
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    log.info("Sheets: %s", wb.sheetnames)
 
-    # Merge vacancy and rent on common keys
-    merged = vacancy_df.merge(rent_df, on=["year", "cma", "bedroom_type", "source"], how="outer")
+    fmt = detect_format(wb)
+    log.info("Detected format: %s", fmt)
 
-    log.info(
-        "  %d vacancy rows, %d rent rows → %d merged rows for %d CMAs",
-        len(vacancy_df),
-        len(rent_df),
-        len(merged),
-        merged["cma"].nunique(),
+    if fmt == "arent_vac_occ":
+        rows = parse_arent_sheet(wb, year)
+        data_type = "rent"
+    elif fmt == "csd_vacancy":
+        rows = parse_csd_sheet(wb, year, "vacancy")
+        data_type = "vacancy"
+    elif fmt == "csd_rent":
+        rows = parse_csd_sheet(wb, year, "rent")
+        data_type = "rent"
+    else:
+        raise ValueError(f"Unknown format: {fmt}")
+
+    cmas = {r["centre"] for r in rows}
+    log.info("Extracted %d rows for %d CMAs: %s", len(rows), len(cmas), sorted(cmas))
+
+    if not rows:
+        log.warning("No data rows extracted — check CMA_NAME_MAP and file format.")
+        return
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=["year", "centre", "bedroom_type", "value", "data_type"])
+    writer.writeheader()
+    writer.writerows(rows)
+
+    key = f"cmhc/raw/{year}_{data_type}.csv"
+    s3.put_object(
+        Bucket=S3_BUCKET_RAW,
+        Key=key,
+        Body=buf.getvalue().encode(),
+        ContentType="text/csv",
     )
-
-    csv_bytes = merged.to_csv(index=False).encode()
-    key = f"cmhc/{year}.csv"
-    s3.put_object(Bucket=S3_BUCKET_RAW, Key=key, Body=csv_bytes, ContentType="text/csv")
     log.info("Uploaded → s3://%s/%s", S3_BUCKET_RAW, key)
 
 

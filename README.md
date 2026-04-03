@@ -103,9 +103,27 @@ uv run python -m src.ingest.cmhc --file data/cmhc/2024.xlsx
 
 ---
 
-## 5. Load into Redshift
+## 5. Transform
 
-Reads normalized CSVs from S3 and upserts into the star schema.
+Reads raw CSVs from S3, maps geography/indicator names to Redshift dim table IDs, and writes COPY-ready CSVs back to S3 under the `transformed/` prefix. Must run before loading.
+
+```bash
+# All StatCan tables
+uv run python -m src.transform.statcan
+
+# Single table
+uv run python -m src.transform.statcan --table cpi_cma
+```
+
+Available table keys: `cpi_cma`, `gasoline_prices`, `food_prices`, `median_income`
+
+**Note:** Food prices (`1810024501`) are only available at the provincial level. The transform replicates provincial values to all target CMAs within each province.
+
+---
+
+## 6. Load into Redshift
+
+Reads transformed CSVs from S3 and upserts into the star schema. Run after Step 5.
 
 ```bash
 # All sources
@@ -118,7 +136,7 @@ uv run python -m src.load.redshift_loader --source cmhc
 
 ---
 
-## 6. Run the Agent
+## 7. Run the Agent
 
 ### Local CLI
 
@@ -149,7 +167,7 @@ curl http://localhost:8000/health
 
 ---
 
-## 7. Update CORS for External Website
+## 8. Update CORS for External Website
 
 When the external site URL is available, no code changes are needed — update two settings:
 
@@ -157,6 +175,24 @@ When the external site URL is available, no code changes are needed — update t
 2. **API Gateway CORS config** — update the allowed origins to match
 
 For multiple origins, use a comma-separated list: `https://site-a.com,https://site-b.com`
+
+---
+
+## 9. Teardown
+
+To permanently destroy all AWS resources created by this project:
+
+```bash
+uv run python infra/teardown.py
+```
+
+You will be prompted to type `destroy` to confirm. This removes — in order — the API Gateway, Lambda, Bedrock KBs, OpenSearch Serverless collection, Redshift Serverless, S3 buckets (including all data), and IAM roles.
+
+To skip the confirmation prompt:
+
+```bash
+uv run python infra/teardown.py --yes
+```
 
 ---
 

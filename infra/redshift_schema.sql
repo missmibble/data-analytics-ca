@@ -107,6 +107,24 @@ WHERE NOT EXISTS (
     WHERE indicator_name = src.indicator_name AND source = src.source
 )
 ~~~
+CREATE TABLE IF NOT EXISTS stg_fact_monthly (
+    geography_id    INT,
+    date_id         INT,
+    indicator_id    INT,
+    value           DECIMAL(12,4)
+)
+~~~
+CREATE TABLE IF NOT EXISTS stg_fact_annual_income (
+    geography_id    INT,
+    date_id         INT,
+    income_source   VARCHAR(100),
+    age_group       VARCHAR(50),
+    sex             VARCHAR(20),
+    median_income   DECIMAL(12,2),
+    avg_income      DECIMAL(12,2),
+    num_persons     BIGINT
+)
+~~~
 CREATE TABLE IF NOT EXISTS fact_monthly (
     id              BIGINT IDENTITY(1,1),
     geography_id    INT         NOT NULL REFERENCES dim_geography(geography_id),
