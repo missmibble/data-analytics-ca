@@ -183,6 +183,34 @@ def load_cmhc_income_tenure() -> None:
     upsert_annual_income_tenure(latest)
 
 
+def load_credit_trends() -> None:
+    """Load the most recent transformed credit trends CSV from S3."""
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    objects = s3_client.list_objects_v2(
+        Bucket=S3_BUCKET_RAW, Prefix="transformed/credit_trends/"
+    ).get("Contents", [])
+    if not objects:
+        log.warning("No transformed credit trends file found — run src.transform.credit_trends first.")
+        return
+    latest = sorted(objects, key=lambda o: o["LastModified"], reverse=True)[0]["Key"]
+    log.info("Loading credit trends from %s", latest)
+    upsert_fact_monthly(latest)
+
+
+def load_mortgage_rates() -> None:
+    """Load the most recent transformed mortgage rates CSV from S3."""
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    objects = s3_client.list_objects_v2(
+        Bucket=S3_BUCKET_RAW, Prefix="transformed/mortgage_rates/"
+    ).get("Contents", [])
+    if not objects:
+        log.warning("No transformed mortgage rates file found — run src.transform.mortgage_rates first.")
+        return
+    latest = sorted(objects, key=lambda o: o["LastModified"], reverse=True)[0]["Key"]
+    log.info("Loading mortgage rates from %s", latest)
+    upsert_fact_monthly(latest)
+
+
 def load_cmhc(year: int | None = None) -> None:
     """Load transformed CMHC CSV(s) from S3."""
     s3_client = boto3.client("s3", region_name=AWS_REGION)
@@ -221,11 +249,23 @@ def main(source: str) -> None:
         except Exception as exc:
             log.error("Failed to load CMHC income tenure: %s", exc)
 
+    if source in ("all", "mortgage_rates"):
+        try:
+            load_mortgage_rates()
+        except Exception as exc:
+            log.error("Failed to load mortgage rates: %s", exc)
+
+    if source in ("all", "credit_trends"):
+        try:
+            load_credit_trends()
+        except Exception as exc:
+            log.error("Failed to load credit trends: %s", exc)
+
     log.info("Redshift load complete.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load normalized CSVs from S3 into Redshift")
-    parser.add_argument("--source", choices=["all", "statcan", "cmhc", "cmhc_income_tenure"], default="all")
+    parser.add_argument("--source", choices=["all", "statcan", "cmhc", "cmhc_income_tenure", "mortgage_rates", "credit_trends"], default="all")
     args = parser.parse_args()
     main(args.source)

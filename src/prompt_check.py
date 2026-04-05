@@ -137,6 +137,29 @@ def fetch_ranges() -> dict:
     """)
     ranges["income"] = _range(rows)
 
+    # Mortgage rates (monthly — national, geography = Canada)
+    rows = _execute("""
+        SELECT MIN(d.year) AS min_yr, MAX(d.year) AS max_yr
+        FROM fact_monthly fm
+        JOIN dim_indicator i ON fm.indicator_id = i.indicator_id
+        JOIN dim_date d ON fm.date_id = d.date_id
+        WHERE i.indicator_name LIKE 'Mortgage rate%'
+    """)
+    ranges["mortgage"] = _range(rows)
+
+    # Credit trends (quarterly — delinquency, credit scores, payments)
+    rows = _execute("""
+        SELECT MIN(d.year) AS min_yr, MAX(d.year) AS max_yr
+        FROM fact_monthly fm
+        JOIN dim_indicator i ON fm.indicator_id = i.indicator_id
+        JOIN dim_date d ON fm.date_id = d.date_id
+        WHERE i.indicator_name IN (
+            'Mortgage delinquency rate', 'Avg credit score - With mortgage',
+            'Avg monthly mortgage payment - Existing'
+        )
+    """)
+    ranges["credit_trends"] = _range(rows)
+
     return ranges
 
 
@@ -152,11 +175,14 @@ def print_suggested_section(ranges: dict) -> None:
     vac_min,      vac_max      = ranges["vacancy"]
     nhpi_min,     nhpi_max     = ranges["nhpi"]
     inc_min,      inc_max      = ranges["income"]
+    mort_min,     mort_max     = ranges["mortgage"]
+    ct_min,       ct_max       = ranges["credit_trends"]
 
+    # ── 1. System prompt ────────────────────────────────────────────────────
     print()
     print("=" * 70)
-    print("Suggested DATA AVAILABILITY section for SYSTEM_PROMPT")
-    print("File: src/config.py")
+    print("1. SYSTEM_PROMPT — Data Availability section")
+    print("   File: src/config.py  (## Data Availability — What Is Actually Loaded)")
     print("=" * 70)
     print()
     print("## Data Availability — What Is Actually Loaded")
@@ -175,10 +201,34 @@ def print_suggested_section(ranges: dict) -> None:
     print(f"- **NHPI**: {nhpi_min}–{nhpi_max} monthly. Index base period: December 2016 = 100.")
     print("  Three series: Total (house and land), House only, Land only.")
     print("  Available for 15 CMAs (no Thunder Bay).")
+    print(f"- **Mortgage rates**: 1-year, 3-year, and 5-year posted fixed rates, {mort_min}–{mort_max} monthly.")
+    print("  National level only (no CMA breakdown). Source: CMHC / CANNEX Financial Exchanges.")
+    print(f"- **Mortgage & credit trends**: Quarterly, Q4 {ct_min}–Q4 {ct_max}. Includes mortgage delinquency rates")
+    print("  (Canada + Montreal/Toronto/Vancouver), delinquency by credit type (national), average credit")
+    print("  scores by mortgage status (national), average monthly mortgage payments (national).")
+    print("  Source: CMHC / Equifax Canada.")
+
+    # ── 2. Widget welcome message ────────────────────────────────────────────
     print()
     print("=" * 70)
-    print("Compare this output with the current SYSTEM_PROMPT in src/config.py")
-    print("and update any ranges that differ before deploying.")
+    print("2. Widget welcome message")
+    print("   File: foresite-widget/index.html  (the opening agent bubble, ~line 149)")
+    print("=" * 70)
+    print()
+    print("📊 What's available:")
+    print(f"• CPI (All-items & Shelter): {cpi_min}–{cpi_max} monthly")
+    print(f"• Gasoline prices: {gas_min}–{gas_max} monthly")
+    print(f"• Food prices (bread, milk, eggs): {food_min}–{food_max} monthly")
+    print(f"• New Housing Price Index (NHPI): {nhpi_min}–{nhpi_max} monthly (base: Dec 2016=100)")
+    print(f"• Mortgage rates (1yr, 3yr, 5yr posted): {mort_min}–{mort_max} monthly (national only)")
+    print(f"• Mortgage & credit trends (delinquency, credit scores, payments): Q4 {ct_min}–Q4 {ct_max} quarterly (national; delinquency also MTL/TOR/VAN)")
+    print(f"• Vacancy rates: {vac_min}–{vac_max} annual")
+    print(f"• Average rents: {rent_min}–{rent_max} annual")
+    print("• Income: by source, age group, and sex (not a single household total)")
+    print()
+    print("=" * 70)
+    print("Update both files above if any ranges differ from what is currently shown.")
+    print("Then redeploy Lambda:  uv run python infra/setup.py --skip-infra")
     print("=" * 70)
     print()
 

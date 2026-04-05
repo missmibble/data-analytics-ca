@@ -25,7 +25,8 @@ SELECT src.cma_name, src.province, src.cma_code FROM (
     SELECT 'Toronto', 'Ontario', '535' UNION ALL
     SELECT 'Vancouver', 'British Columbia', '933' UNION ALL
     SELECT 'Victoria', 'British Columbia', '935' UNION ALL
-    SELECT 'Winnipeg', 'Manitoba', '602'
+    SELECT 'Winnipeg', 'Manitoba', '602' UNION ALL
+    SELECT 'Canada', 'Canada', '000'
 ) src
 WHERE NOT EXISTS (SELECT 1 FROM dim_geography WHERE cma_name = src.cma_name)
 ~~~
@@ -100,7 +101,20 @@ SELECT src.indicator_name, src.source, src.unit, src.category, src.frequency FRO
     SELECT 'Vacancy rate - 1 Bedroom', 'CMHC', 'Percent', 'Housing', 'annual' UNION ALL
     SELECT 'Vacancy rate - 2 Bedroom', 'CMHC', 'Percent', 'Housing', 'annual' UNION ALL
     SELECT 'Vacancy rate - 3 Bedroom +', 'CMHC', 'Percent', 'Housing', 'annual' UNION ALL
-    SELECT 'Vacancy rate - Total', 'CMHC', 'Percent', 'Housing', 'annual'
+    SELECT 'Vacancy rate - Total', 'CMHC', 'Percent', 'Housing', 'annual' UNION ALL
+    SELECT 'Mortgage rate - 1 year', 'CMHC', 'Percent', 'Mortgage', 'monthly' UNION ALL
+    SELECT 'Mortgage rate - 3 year', 'CMHC', 'Percent', 'Mortgage', 'monthly' UNION ALL
+    SELECT 'Mortgage rate - 5 year', 'CMHC', 'Percent', 'Mortgage', 'monthly' UNION ALL
+    SELECT 'Mortgage delinquency rate', 'CMHC', 'Percent', 'Mortgage', 'quarterly' UNION ALL
+    SELECT 'HELOC delinquency rate', 'CMHC', 'Percent', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Credit card delinquency rate', 'CMHC', 'Percent', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Auto loan delinquency rate', 'CMHC', 'Percent', 'Credit', 'quarterly' UNION ALL
+    SELECT 'LOC delinquency rate', 'CMHC', 'Percent', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Avg credit score - Without mortgage', 'CMHC', 'Score', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Avg credit score - With mortgage', 'CMHC', 'Score', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Avg credit score - With new mortgage', 'CMHC', 'Score', 'Credit', 'quarterly' UNION ALL
+    SELECT 'Avg monthly mortgage payment - Existing', 'CMHC', 'CAD/month', 'Mortgage', 'quarterly' UNION ALL
+    SELECT 'Avg monthly mortgage payment - New', 'CMHC', 'CAD/month', 'Mortgage', 'quarterly'
 ) src
 WHERE NOT EXISTS (
     SELECT 1 FROM dim_indicator

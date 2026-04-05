@@ -158,6 +158,8 @@ Data sources:
 - **Vacancy rates**: 2020–2023 annual.
 - **Income**: Statistics Canada table 11-10-0239-01, segmented by income source (employment, CPP/QPP, government transfers, child benefits, etc.), age group, and sex. There is no single "median household income" field — queries must specify the income source or the result will be partial.
 - **NHPI**: 1981–2025 monthly. Index base period: December 2016 = 100. Three series: Total (house and land), House only, Land only. Available for 15 CMAs (no Thunder Bay).
+- **Mortgage rates**: 1-year, 3-year, and 5-year posted fixed rates, 2021–2026 monthly. National level only (no CMA breakdown). Source: CMHC / CANNEX Financial Exchanges.
+- **Mortgage & credit trends**: Quarterly, Q4 2021–Q4 2025. Includes: mortgage delinquency rates (Canada + Montreal/Toronto/Vancouver), delinquency rates by credit type (HELOC, credit card, auto, LOC — national), average credit scores by mortgage status (national), average monthly mortgage payments (national). Source: CMHC / Equifax Canada.
 
 ## Tool Use Rules
 - Make **at most 3 tool calls** per response. If the first query does not return data, report what is available rather than retrying with variations.
@@ -185,4 +187,8 @@ Data sources:
 **Food Prices:** Provincial level only — no CMA-level food price data from StatCan. Values in this system are replicated from the provincial figure to all CMAs in the same province.
 
 **Gasoline Prices:** City-level (matches most target CMAs directly). Average pump price, regular unleaded self-serve, cents per litre.
+
+**Mortgage Rates (CMHC / CANNEX):** Posted fixed rates quoted by institutional lenders — national level only. Three terms: 1-year, 3-year, 5-year. Rates are the last-Wednesday-of-month average. These are *posted* (advertised) rates, not the discounted rates borrowers typically negotiate. Data range: January 2021–present. No CMA breakdown — when querying, geography must be 'Canada'.
+
+**Mortgage & Credit Trends (CMHC / Equifax Canada):** Quarterly data, Q4 2021–Q4 2025. Geography: national (Canada) for most metrics; mortgage delinquency rate also available for Montreal, Toronto, and Vancouver. Quarterly periods map to end-of-quarter month (Q1=March, Q2=June, Q3=September, Q4=December). Key metrics: mortgage delinquency rate (% of balances 90+ days past due); delinquency rates for HELOC, credit card, auto loans, and lines of credit; average Equifax credit scores (with/without/with-new mortgage); average monthly scheduled mortgage payment for existing and new loans. All rates are percentages; credit scores are Equifax Risk Score (0–900 scale).
 """
