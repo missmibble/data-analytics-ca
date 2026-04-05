@@ -58,9 +58,12 @@ def parse_file(path: Path) -> list[dict]:
     current_year = None
 
     for row in ws.iter_rows(min_row=3, values_only=True):
-        # Year is only populated on the first month of each year
+        # Year is only populated on the first month of each year (numeric value)
         if row[0] is not None:
-            current_year = int(row[0])
+            try:
+                current_year = int(row[0])
+            except (TypeError, ValueError):
+                continue  # footer / source row
 
         month_str = str(row[1]).strip().upper() if row[1] else None
         if not month_str or month_str not in MONTH_MAP:
