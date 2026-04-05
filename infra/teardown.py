@@ -146,6 +146,31 @@ def destroy_aoss() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Vector-KB-only teardown (cost optimization — leaves all other resources intact)
+# ---------------------------------------------------------------------------
+
+def destroy_vector_kb_only() -> None:
+    """Delete only vector KB resources to stop OpenSearch Serverless billing.
+    Leaves Redshift, raw S3, Lambda, and API Gateway intact.
+    """
+    log.info("=== Vector-KB-only teardown ===")
+    kbs = bedrock_agent.list_knowledge_bases().get("knowledgeBaseSummaries", [])
+    kb = next((k for k in kbs if k["name"] == VECTOR_KB_NAME), None)
+    if kb:
+        kb_id = kb["knowledgeBaseId"]
+        for src in bedrock_agent.list_data_sources(knowledgeBaseId=kb_id).get("dataSourceSummaries", []):
+            bedrock_agent.delete_data_source(knowledgeBaseId=kb_id, dataSourceId=src["dataSourceId"])
+            log.info("  Deleted data source: %s", src["dataSourceId"])
+        bedrock_agent.delete_knowledge_base(knowledgeBaseId=kb_id)
+        log.info("Deleted vector KB: %s (%s)", VECTOR_KB_NAME, kb_id)
+    else:
+        log.info("Vector KB not found — already deleted.")
+    destroy_aoss()
+    log.info("Docs S3 bucket (%s) retained for archiving.", S3_BUCKET_DOCS)
+    log.info("Vector KB teardown complete. OpenSearch Serverless billing stopped.")
+
+
+# ---------------------------------------------------------------------------
 # Step 5 — Redshift Serverless
 # ---------------------------------------------------------------------------
 
@@ -272,7 +297,22 @@ def main(skip_confirm: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Destroy all ForeSite AWS infrastructure")
+    parser = argparse.ArgumentParser(description="Destroy ForeSite AWS infrastructure")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    parser.add_argument(
+        "--vector-kb-only",
+        action="store_true",
+        help="Delete only the vector KB and AOSS collection. Leaves Redshift, Lambda, and API Gateway intact.",
+    )
     args = parser.parse_args()
-    main(skip_confirm=args.yes)
+    if args.vector_kb_only:
+        if not args.yes:
+            print(f"\nThis will delete: Bedrock KB '{VECTOR_KB_NAME}', AOSS collection '{AOSS_COLLECTION_NAME}'")
+            print(f"S3 docs bucket '{S3_BUCKET_DOCS}' is NOT affected.")
+            print("Redshift, Lambda, and API Gateway are NOT affected.\n")
+            if input("Type 'destroy-vector-kb' to confirm: ").strip() != "destroy-vector-kb":
+                print("Aborted.")
+                raise SystemExit(0)
+        destroy_vector_kb_only()
+    else:
+        main(skip_confirm=args.yes)

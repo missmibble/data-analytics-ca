@@ -43,11 +43,10 @@ Open `.env` and fill in:
 |----------|-------------|
 | `AWS_REGION` | `ca-central-1` (pre-filled) |
 | `S3_BUCKET_RAW` | S3 bucket for raw ingested data |
-| `S3_BUCKET_DOCS` | S3 bucket for CMHC PDFs/docs |
+| `S3_BUCKET_DOCS` | S3 bucket for CMHC docs (archival, not queried by agent) |
 | `REDSHIFT_WORKGROUP` | Redshift Serverless workgroup name |
 | `REDSHIFT_DATABASE` | Redshift database name |
 | `STRUCTURED_KB_ID` | Populated automatically by `infra/setup.py` |
-| `VECTOR_KB_ID` | Populated automatically by `infra/setup.py` |
 | `ALLOWED_ORIGINS` | `*` during development; set to external site URL when known |
 | `API_GATEWAY_URL` | Populated automatically by `infra/setup.py` |
 | `STREAM_URL` | Lambda Function URL for streaming chat (populated automatically) |
@@ -64,7 +63,7 @@ uv run python infra/setup.py
 
 You will be prompted for a Redshift admin password (min 8 chars, must include uppercase, lowercase, and a digit).
 
-On completion, the script prints `STRUCTURED_KB_ID`, `VECTOR_KB_ID`, `API_GATEWAY_URL`, and `STREAM_URL` — copy these into your `.env` file.
+On completion, the script prints `STRUCTURED_KB_ID`, `API_GATEWAY_URL`, and `STREAM_URL` — copy these into your `.env` file.
 
 To provision infrastructure only (skip Lambda/API Gateway):
 
@@ -137,6 +136,26 @@ uv run python -m src.load.redshift_loader --source cmhc
 
 ---
 
+## 6b. Update System Prompt After Each Load
+
+The agent's **Data Availability** section in `src/config.py` lists the date ranges for each indicator. These must be kept in sync with what's actually in Redshift — an outdated prompt causes the agent to misreport what data is available.
+
+**Run this after every data load:**
+
+```bash
+uv run python -m src.prompt_check
+```
+
+The script queries Redshift and prints the suggested Data Availability text. Compare it with the current `SYSTEM_PROMPT` in `src/config.py` (the `## Data Availability — What Is Actually Loaded` section) and update any ranges that differ.
+
+After editing `src/config.py`, redeploy the Lambda to pick up the change:
+
+```bash
+uv run python infra/setup.py --skip-infra
+```
+
+---
+
 ## 7. Run the Agent
 
 ### Local CLI
@@ -187,12 +206,18 @@ To permanently destroy all AWS resources created by this project:
 uv run python infra/teardown.py
 ```
 
-You will be prompted to type `destroy` to confirm. This removes — in order — the API Gateway, Lambda, Bedrock KBs, OpenSearch Serverless collection, Redshift Serverless, S3 buckets (including all data), and IAM roles.
+You will be prompted to type `destroy` to confirm. This removes — in order — the API Gateway, Lambda, Bedrock Structured KB, Redshift Serverless, S3 buckets (including all data), and IAM roles.
 
 To skip the confirmation prompt:
 
 ```bash
 uv run python infra/teardown.py --yes
+```
+
+To remove only the OpenSearch Serverless collection and Bedrock Vector KB (if previously provisioned), without affecting Redshift or the API:
+
+```bash
+uv run python infra/teardown.py --vector-kb-only
 ```
 
 ---
@@ -201,13 +226,13 @@ uv run python infra/teardown.py --yes
 
 Run these against the deployed API Gateway endpoint to confirm end-to-end function:
 
-| Query | Expected KB |
-|-------|-------------|
-| "What was the average 2-bedroom rent in Calgary in 2024?" | Structured |
-| "Compare CPI shelter index for Toronto and Vancouver from 2022 to 2024." | Structured |
-| "Which city has the lowest vacancy rate?" | Structured |
-| "How is the NHPI calculated?" | Vector |
-| "For a mid-level analyst earning $85,000, which CMA offers the best affordability?" | Both |
+| Query | Expected behaviour |
+|-------|-------------------|
+| "What was the average 2-bedroom rent in Calgary in 2024?" | `query_structured_kb` tool call |
+| "Compare CPI shelter index for Toronto and Vancouver from 2022 to 2024." | `query_structured_kb` tool call |
+| "Which city has the lowest vacancy rate?" | `query_structured_kb` tool call |
+| "How is the NHPI calculated?" | Answered from inline methodology context — no tool call |
+| "For a mid-level analyst earning $85,000, which CMA offers the best affordability?" | `query_structured_kb` + inline context |
 
 ---
 
@@ -216,10 +241,12 @@ Run these against the deployed API Gateway endpoint to confirm end-to-end functi
 ```
 Statistics Canada WDS API  ──→ S3 (raw CSVs)  ──→ ETL ──→ Redshift Serverless
 CMHC Excel (annual batch)  ──→ S3 (raw Excel) ──→ ETL ──→ Redshift Serverless
-CMHC PDFs / methodology    ──→ S3 (docs)      ──────────→ Bedrock Vector KB
+CMHC docs / methodology    ──→ S3 (archival only — not queried by agent)
 
 Redshift Serverless ──→ Bedrock Structured KB (NL-to-SQL)
-Bedrock Vector KB   ──→ Strands agent (retrieve tool)
+                        ↓
+                    Strands agent (query_structured_kb tool)
+                    + inline methodology context (src/config.py SYSTEM_PROMPT)
                         ↓
                     FastAPI (src/api.py)
                         ↓

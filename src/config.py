@@ -13,7 +13,6 @@ S3_BUCKET_DOCS = os.getenv("S3_BUCKET_DOCS", "foresite-docs-ca-383429078788")
 REDSHIFT_WORKGROUP = os.getenv("REDSHIFT_WORKGROUP", "foresite-wg")
 REDSHIFT_DATABASE = os.getenv("REDSHIFT_DATABASE", "foresite")
 STRUCTURED_KB_ID = os.getenv("STRUCTURED_KB_ID", "")
-VECTOR_KB_ID = os.getenv("VECTOR_KB_ID", "")
 
 # ---------------------------------------------------------------------------
 # Statistics Canada WDS table registry
@@ -148,8 +147,8 @@ Data sources:
 
 ## Your Tools
 - Use **query_structured_kb** for specific numeric questions: rents, CPI values, income figures, vacancy rates, price indices, comparisons across cities or time periods.
-- Use **retrieve** for contextual or methodological questions: how indicators are calculated, data definitions, survey methodology.
-- For complex questions (e.g. "best city for a $90k salary"), use both tools to combine numeric data with context.
+- For methodological or definitional questions, use the **Methodology & Definitions** section below — no tool call needed.
+- For complex questions (e.g. "best city for a $90k salary"), use query_structured_kb for the numeric data, then synthesize with the methodology context below.
 
 ## Data Availability — What Is Actually Loaded
 - **CPI**: All-items and Shelter only (2015–2026). Food, Energy, and Transportation CPI are not published at the CMA level by StatCan — only national/provincial breakdowns exist for those categories.
@@ -170,4 +169,20 @@ Data sources:
 - When comparing cities, present data in a table where possible.
 - Flag when data is annual vs. monthly, as this affects recency.
 - If a query is outside the available data scope, say so clearly rather than guessing.
+
+## Methodology & Definitions
+
+**CMHC Rental Market Survey (RMS):** Annual survey of private apartments (3+ units), conducted each October. Vacancy rate = unoccupied AND available units ÷ total universe × 100. A rate below 3% is a tight market. Average rent reflects *occupied* unit leases, not asking rent — it lags market rents in rising markets. Turnover rate = units that changed tenants ÷ total occupied × 100. Universe count changes reflect new completions or demolitions.
+
+**NHPI (New Housing Price Index):** Hedonic pricing model collecting prices from homebuilders for newly constructed homes sold to individuals. Controls for size/features/location changes to isolate pure price change. Base: December 2016 = 100. Covers new construction only — resale excluded. 15 CMAs (no Thunder Bay). Three series: Total (house + land), House only, Land only.
+
+**CPI (Consumer Price Index):** Fixed-weight Laspeyres-type index. Monthly basket of goods representative of average Canadian household spending. Base: 2002 = 100. CMA-level data exists only for All-items and Shelter — Food, Energy, and Transportation are national/provincial only. Shelter CPI includes rented accommodation, owned accommodation costs, and utilities — it is not the same as average rent.
+
+**Income (StatCan 11-10-0239-01):** Annual median/average *individual* income by CMA, segmented by income source (employment, CPP/QPP, government transfers, investment, etc.), age group, and sex. There is no single household income field — always specify income source; use "total income from all sources" as the closest proxy for total individual income.
+
+**CMHC Mortgage & Credit Data (2025 Q4):** National-level; CMA breakdown available only for Montreal, Toronto, and Vancouver (delinquency rates only). Key metrics: mortgage delinquency (90+ days past due), average credit scores at origination, HELOC balances, share of insured vs. uninsured mortgages. A delinquency rate above 0.5% is elevated by Canadian standards. Use for qualitative framing of affordability and credit conditions.
+
+**Food Prices:** Provincial level only — no CMA-level food price data from StatCan. Values in this system are replicated from the provincial figure to all CMAs in the same province.
+
+**Gasoline Prices:** City-level (matches most target CMAs directly). Average pump price, regular unleaded self-serve, cents per litre.
 """
