@@ -598,7 +598,7 @@ def provision_lambda(role_arn: str, structured_kb_id: str, vector_kb_id: str) ->
             FunctionName=LAMBDA_FUNCTION_NAME, ZipFile=zip_bytes
         )
         lambda_client.update_function_configuration(
-            FunctionName=LAMBDA_FUNCTION_NAME, Environment={"Variables": env_vars}
+            FunctionName=LAMBDA_FUNCTION_NAME, Environment={"Variables": env_vars}, MemorySize=1536
         )
         fn_arn = resp["Configuration"]["FunctionArn"]
         log.info("Updated Lambda: %s", fn_arn)
@@ -610,7 +610,7 @@ def provision_lambda(role_arn: str, structured_kb_id: str, vector_kb_id: str) ->
             Handler="src.api.handler",
             Code={"ZipFile": zip_bytes},
             Timeout=120,
-            MemorySize=512,
+            MemorySize=1536,
             Environment={"Variables": env_vars},
         )
         fn_arn = resp["FunctionArn"]
